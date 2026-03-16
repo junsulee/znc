@@ -125,7 +125,7 @@ Examples:
 }
 
 
-def get_message(lang: str, key: str, **kwargs) -> str:
-    lang_msgs = MESSAGES.get(lang, MESSAGES["en"])
+def get_message(locale: str, key: str, **kwargs) -> str:
+    lang_msgs = MESSAGES.get(locale, MESSAGES["en"])
     template = lang_msgs.get(key, MESSAGES["en"].get(key, key))
     return template.format(**kwargs)

@@ -4,15 +4,42 @@
 
 ## 설치
 
-```bash
-pip install -e .
-```
-
-OpenAI 백엔드를 사용하려면 추가 의존성을 설치합니다.
+### 방법 1 — GitHub에서 직접 설치 (권장)
 
 ```bash
-pip install -e ".[openai]"
+pip install git+https://github.com/junsulee/znc.git
 ```
+
+OpenAI 백엔드도 함께 설치하려면:
+
+```bash
+pip install "znc[openai] @ git+https://github.com/junsulee/znc.git"
+```
+
+### 방법 2 — 소스 클론 후 설치 (개발용)
+
+```bash
+git clone https://github.com/junsulee/znc.git
+cd znc
+pip install -e .          # 기본 (Ollama 백엔드)
+pip install -e ".[openai]" # OpenAI 백엔드 포함
+```
+
+### PATH 설정
+
+설치 후 `znc` 명령이 없다는 오류가 나오면 pip의 스크립트 경로를 PATH에 추가합니다.
+
+```bash
+# ~/.bashrc 또는 ~/.zshrc 에 추가
+export PATH="$HOME/.local/bin:$PATH"
+source ~/.bashrc
+```
+
+### 요구 사항
+
+- Python 3.11 이상
+- Ollama 백엔드: [Ollama](https://ollama.com) 설치 및 모델 다운로드 필요
+- OpenAI 백엔드: `pip install openai` 및 API 키 필요
 
 ## 사용법
 

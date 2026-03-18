@@ -1,12 +1,13 @@
 """
-znc CLI 메인 진입점
+znc CLI 메인 진입점.
+
+`znc`          → TUI 실행
+`znc <cmd>`    → 기존 CLI 서브커맨드 (headless 환경용)
 """
 from __future__ import annotations
 
 import click
 
-from znc.core.config import load_settings
-from znc.core.i18n import MESSAGES
 from znc.cli.session_cmds import cmd_new, cmd_load, cmd_ls, cmd_rm, cmd_export
 from znc.cli.settings_cmds import cmd_settings
 from znc.cli.project_cmds import cmd_project
@@ -18,14 +19,14 @@ from znc.cli.project_cmds import cmd_project
 )
 @click.pass_context
 def cli(ctx):
-    settings = load_settings()
-    lang = settings.get("lang", "ko")
+    """znc — 개인용 AI CLI.
+
+    인수 없이 실행하면 풀스크린 TUI가 실행됩니다.
+    서브커맨드를 지정하면 headless 모드로 동작합니다.
+    """
     if ctx.invoked_subcommand is None:
-        click.secho(
-            MESSAGES.get(lang, MESSAGES["en"])["help_header"],
-            fg="cyan",
-            bold=True,
-        )
+        from znc.tui.app import ZncApp
+        ZncApp().run()
 
 
 cli.add_command(cmd_new)

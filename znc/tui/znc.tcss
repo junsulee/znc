@@ -1,0 +1,366 @@
+/* znc TUI — 전역 스타일 */
+
+$bg:        #0d1117;
+$bg-panel:  #161b22;
+$bg-hover:  #1c2128;
+$bg-active: #21262d;
+$border:    #30363d;
+$text:      #e6edf3;
+$text-dim:  #8b949e;
+$text-muted:#484f58;
+$accent:    #58a6ff;
+$accent2:   #79c0ff;
+$success:   #3fb950;
+$warning:   #d29922;
+$error:     #f85149;
+$user-msg:  #1c2128;
+$ai-msg:    #0d1117;
+
+Screen {
+    background: $bg;
+    color: $text;
+}
+
+/* ── 사이드바 ─────────────────────────────────────── */
+#sidebar {
+    width: 26;
+    min-width: 26;
+    background: $bg-panel;
+    border-right: tall $border;
+    padding: 0;
+}
+
+#sidebar-title {
+    background: $bg-panel;
+    color: $accent;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
+
+#project-list {
+    background: $bg-panel;
+    height: auto;
+    padding: 0;
+}
+
+#session-list {
+    background: $bg-panel;
+    padding: 0;
+}
+
+.section-label {
+    color: $text-muted;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
+
+.sidebar-item {
+    padding: 0 2;
+    height: 1;
+    color: $text-dim;
+}
+
+.sidebar-item:hover {
+    background: $bg-hover;
+    color: $text;
+}
+
+.sidebar-item.--active {
+    background: $bg-active;
+    color: $accent;
+}
+
+.sidebar-item.--project {
+    padding: 0 1;
+}
+
+#sidebar-footer {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    dock: bottom;
+}
+
+/* ── 메인 채팅 영역 ───────────────────────────────── */
+#chat-pane {
+    background: $bg;
+}
+
+#chat-header {
+    height: 1;
+    background: $bg-panel;
+    border-bottom: tall $border;
+    padding: 0 1;
+    color: $text-dim;
+}
+
+#chat-header-title {
+    color: $accent;
+    text-style: bold;
+}
+
+#chat-header-meta {
+    color: $text-muted;
+    text-align: right;
+}
+
+#message-view {
+    background: $bg;
+    padding: 1 2;
+    scrollbar-background: $bg-panel;
+    scrollbar-color: $border;
+}
+
+.msg-block {
+    margin-bottom: 1;
+    padding: 0;
+}
+
+.msg-role {
+    color: $text-muted;
+    text-style: bold;
+    height: 1;
+}
+
+.msg-role.--user {
+    color: $accent2;
+}
+
+.msg-role.--assistant {
+    color: $success;
+}
+
+.msg-content {
+    color: $text;
+    padding: 0 0 0 2;
+    margin-bottom: 1;
+}
+
+.msg-content.--user {
+    color: $text;
+}
+
+.msg-content.--assistant {
+    color: $text;
+}
+
+.search-status {
+    color: $warning;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+.memory-badge {
+    color: $text-muted;
+    padding: 0 1;
+    height: 1;
+}
+
+/* ── 입력창 ──────────────────────────────────────── */
+#input-bar {
+    height: 3;
+    border-top: tall $border;
+    background: $bg-panel;
+    padding: 0 1;
+}
+
+#input-field {
+    background: $bg;
+    border: tall $border;
+    color: $text;
+    padding: 0 1;
+    height: 1;
+}
+
+#input-field:focus {
+    border: tall $accent;
+}
+
+/* ── 자동완성 팝업 ────────────────────────────────── */
+#autocomplete {
+    background: $bg-active;
+    border: tall $border;
+    padding: 0;
+    max-height: 10;
+    width: 40;
+}
+
+.autocomplete-item {
+    padding: 0 1;
+    height: 1;
+    color: $text-dim;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.--selected {
+    background: $bg-hover;
+    color: $accent;
+}
+
+.autocomplete-desc {
+    color: $text-muted;
+}
+
+/* ── 팝업 공통 ───────────────────────────────────── */
+.modal-container {
+    align: center middle;
+    background: rgba(0,0,0,0.6);
+}
+
+.modal-box {
+    background: $bg-panel;
+    border: tall $border;
+    padding: 1 2;
+    min-width: 50;
+    max-width: 70;
+}
+
+.modal-title {
+    color: $accent;
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+
+.modal-section {
+    color: $text-muted;
+    text-style: bold;
+    height: 1;
+    margin-top: 1;
+}
+
+.modal-input {
+    background: $bg;
+    border: tall $border;
+    color: $text;
+    margin-bottom: 1;
+}
+
+.modal-input:focus {
+    border: tall $accent;
+}
+
+.modal-textarea {
+    background: $bg;
+    border: tall $border;
+    color: $text;
+    height: 5;
+    margin-bottom: 1;
+}
+
+.modal-textarea:focus {
+    border: tall $accent;
+}
+
+.modal-btn-row {
+    align: center middle;
+    height: 3;
+    margin-top: 1;
+}
+
+Button {
+    background: $bg-active;
+    border: tall $border;
+    color: $text;
+    margin: 0 1;
+}
+
+Button:hover {
+    background: $bg-hover;
+    border: tall $accent;
+    color: $accent;
+}
+
+Button.--primary {
+    background: $accent;
+    color: $bg;
+    border: tall $accent;
+}
+
+Button.--primary:hover {
+    background: $accent2;
+}
+
+Button.--danger {
+    background: $error;
+    color: $bg;
+    border: tall $error;
+}
+
+/* ── 설정 화면 ───────────────────────────────────── */
+#settings-list {
+    background: $bg-panel;
+    padding: 1 2;
+}
+
+.setting-row {
+    height: 3;
+    margin-bottom: 1;
+}
+
+.setting-label {
+    width: 20;
+    color: $text-dim;
+    padding: 1 0;
+}
+
+.setting-value {
+    background: $bg;
+    border: tall $border;
+    color: $text;
+}
+
+.setting-value:focus {
+    border: tall $accent;
+}
+
+/* ── 키맵 힌트 바 ────────────────────────────────── */
+#keybind-bar {
+    height: 1;
+    background: $bg-panel;
+    border-top: tall $border;
+    dock: bottom;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.key-hint {
+    color: $accent;
+    text-style: bold;
+}
+
+/* ── 메모리 패널 ─────────────────────────────────── */
+.memory-item-row {
+    height: 1;
+    padding: 0 1;
+    color: $text-dim;
+}
+
+.memory-item-row:hover {
+    background: $bg-hover;
+}
+
+.memory-source-manual {
+    color: $accent;
+}
+
+.memory-source-auto {
+    color: $warning;
+}
+
+/* ── Persona 패널 ────────────────────────────────── */
+.persona-item-row {
+    height: 1;
+    padding: 0 1;
+    color: $text-dim;
+}
+
+.persona-item-row:hover {
+    background: $bg-hover;
+}
+
+.persona-item-row.--active {
+    color: $success;
+}

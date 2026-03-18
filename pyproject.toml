@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "znc"
-version = "0.1.0"
+version = "0.2.0"
 description = "개인용 AI CLI — 대화 저장, 프로젝트 단위 관리, 다중 백엔드 지원"
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,6 +12,9 @@ requires-python = ">=3.11"
 dependencies = [
     "click>=8.1",
     "requests>=2.31",
+    "textual>=0.80",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
 ]
 
 [project.optional-dependencies]

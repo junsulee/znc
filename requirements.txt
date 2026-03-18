@@ -1,2 +1,5 @@
 click>=8.1
 requests>=2.31
+textual>=0.80
+beautifulsoup4>=4.12
+lxml>=5.0

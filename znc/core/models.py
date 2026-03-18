@@ -36,6 +36,13 @@ class Session:
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     project: Optional[str] = None
     system_prompt: Optional[str] = None
+    title: str = ""        # 자동 생성 요약 제목 (비어있으면 name 사용)
+    is_temp: bool = False  # True 이면 종료 시 저장하지 않음
+
+    @property
+    def display_title(self) -> str:
+        """사이드바·헤더에 표시할 제목."""
+        return self.title if self.title else self.name
 
     def append(self, message: Message) -> None:
         self.messages.append(message)
@@ -44,6 +51,8 @@ class Session:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
+            "title": self.title,
+            "is_temp": self.is_temp,
             "messages": [m.to_dict() for m in self.messages],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -56,6 +65,8 @@ class Session:
         messages = [Message.from_dict(m) for m in d.get("messages", [])]
         return cls(
             name=d["name"],
+            title=d.get("title", ""),
+            is_temp=d.get("is_temp", False),
             messages=messages,
             created_at=d.get("created_at", datetime.now().isoformat()),
             updated_at=d.get("updated_at", datetime.now().isoformat()),
@@ -84,7 +95,32 @@ class Session:
     def list_names(sessions_dir: str) -> list[str]:
         if not os.path.exists(sessions_dir):
             return []
-        return [f[:-5] for f in sorted(os.listdir(sessions_dir)) if f.endswith(".json")]
+        # 수정일(mtime) 기준 최신순 정렬
+        files = [f for f in os.listdir(sessions_dir) if f.endswith(".json")]
+        files.sort(
+            key=lambda f: os.path.getmtime(os.path.join(sessions_dir, f)),
+            reverse=True,
+        )
+        return [f[:-5] for f in files]
+
+    @staticmethod
+    def list_sessions(sessions_dir: str) -> list["Session"]:
+        """name + title 을 함께 반환하는 경량 로딩."""
+        result = []
+        for name in Session.list_names(sessions_dir):
+            path = os.path.join(sessions_dir, f"{name}.json")
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                result.append(Session(
+                    name=d.get("name", name),
+                    title=d.get("title", ""),
+                    is_temp=d.get("is_temp", False),
+                    updated_at=d.get("updated_at", ""),
+                ))
+            except Exception:
+                result.append(Session(name=name))
+        return result
 
 
 @dataclass

@@ -10,9 +10,20 @@ znc TUI 메인 앱.
 │             │  InputBar                              │
 └─────────────┴────────────────────────────────────────┘
               KeybindBar (dock=bottom)
+
+단축키:
+  Ctrl+N   새 채팅
+  Ctrl+T   임시 채팅 (저장 안 함)
+  Ctrl+S   설정
+  Ctrl+P   Persona
+  Ctrl+M   메모리
+  L        프로세스 로그 토글
+  Tab      사이드바 ↔ 채팅창
+  Ctrl+Q   종료
 """
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Optional
@@ -35,6 +46,7 @@ from znc.tui.process_state import ProcessState, Stage
 from znc.tui.screens.memory import MemoryScreen
 from znc.tui.screens.new_project import NewProjectScreen
 from znc.tui.screens.persona import PersonaScreen
+from znc.tui.screens.rename_session import RenameSessionScreen
 from znc.tui.screens.settings import SettingsScreen
 from znc.tui.widgets.chat_view import MessageView
 from znc.tui.widgets.input_bar import InputBar
@@ -44,6 +56,9 @@ from znc.tui.widgets.status_bar import StatusBar
 
 CSS_PATH = Path(__file__).parent / "znc.tcss"
 
+_UNSAVED = "__unsaved__"
+_TEMP    = "__temp__"
+
 
 class ZncApp(App):
     """znc TUI 메인 앱."""
@@ -51,13 +66,14 @@ class ZncApp(App):
     CSS_PATH = CSS_PATH
 
     BINDINGS = [
-        Binding("ctrl+q", "quit",          "종료",    show=True),
+        Binding("ctrl+n", "new_session",   "새 채팅",  show=True),
+        Binding("ctrl+t", "temp_session",  "임시 채팅", show=True),
         Binding("ctrl+s", "open_settings", "설정",    show=True),
         Binding("ctrl+p", "open_persona",  "persona", show=True),
         Binding("ctrl+m", "open_memory",   "memory",  show=True),
-        Binding("ctrl+n", "new_session",   "새 세션", show=True),
         Binding("l",      "toggle_log",    "log",     show=True),
         Binding("tab",    "focus_next",    "패널전환", show=True),
+        Binding("ctrl+q", "quit",          "종료",    show=True),
         Binding("escape", "focus_input",   "",        show=False),
     ]
 
@@ -71,6 +87,7 @@ class ZncApp(App):
         self._streaming = False
         self._stream_buffer = ""
         self._ps = ProcessState()
+        self._title_generated = False  # 현재 세션 제목 생성 완료 여부
 
     # ------------------------------------------------------------------
     # Layout
@@ -95,20 +112,17 @@ class ZncApp(App):
     # ProcessState helpers
     # ------------------------------------------------------------------
     def _step(self, stage: Stage, detail: str = "") -> None:
-        """단계 전환 — 메인 스레드에서 호출."""
         self._ps.transition(stage, detail)
         self.query_one(StatusBar).refresh()
         self.query_one(ProcessLog).append_step()
 
     def _step_from_thread(self, stage: Stage, detail: str = "") -> None:
-        """백그라운드 스레드에서 단계 전환."""
         self.call_from_thread(self._step, stage, detail)
 
     def _reset_process(self) -> None:
         self._ps.reset()
         self.query_one(StatusBar).refresh()
-        pl = self.query_one(ProcessLog)
-        pl.set_state(self._ps)
+        self.query_one(ProcessLog).set_state(self._ps)
 
     # ------------------------------------------------------------------
     # Header / Keybind
@@ -119,26 +133,35 @@ class ZncApp(App):
         model = cfg.get("openai_model") if backend == "openai" else cfg.get("model", "")
         model_short = (model or "")[:24]
         persona_name = self._persona.name
-        hdr = self.query_one("#chat-header", Static)
-        hdr.update(
-            f"znc  "
-            f"[dim]|[/]  [bold #58a6ff]{persona_name}[/]  "
+
+        if self._session:
+            if self._session.is_temp:
+                sess_label = "[dim #d29922][temp][/]"
+            elif self._session.name in (_UNSAVED, _TEMP):
+                lang = self._settings.get("lang", "ko")
+                sess_label = "[dim]새 채팅[/]" if lang == "ko" else "[dim]new chat[/]"
+            else:
+                title = self._session.display_title
+                sess_label = f"[dim]{title[:40]}[/]"
+        else:
+            sess_label = "[dim]—[/]"
+
+        self.query_one("#chat-header", Static).update(
+            f"znc  [dim]|[/]  [bold #58a6ff]{persona_name}[/]  "
             f"[dim]|[/]  [dim]{backend}:{model_short}[/]  "
-            f"[dim]|[/]  "
-            f"session: [dim]{self._session.name if self._session else 'none'}[/]"
+            f"[dim]|[/]  {sess_label}"
         )
 
     def _update_keybind_bar(self) -> None:
-        bar = self.query_one("#keybind-bar", Static)
-        bar.update(
+        self.query_one("#keybind-bar", Static).update(
             "[bold #58a6ff]^N[/] new  "
+            "[bold #58a6ff]^T[/] temp  "
             "[bold #58a6ff]^S[/] settings  "
             "[bold #58a6ff]^P[/] persona  "
             "[bold #58a6ff]^M[/] memory  "
             "[bold #58a6ff]L[/] log  "
             "[bold #58a6ff]Tab[/] panel  "
-            "[bold #58a6ff]^Q[/] quit  "
-            "  /search /remember /forget /persona /clear /save /export"
+            "[bold #58a6ff]^Q[/] quit"
         )
 
     # ------------------------------------------------------------------
@@ -156,28 +179,35 @@ class ZncApp(App):
     # ------------------------------------------------------------------
     # Session helpers
     # ------------------------------------------------------------------
-    def _start_new_session(self, project: str | None = None) -> None:
+    def _sessions_dir(self, project: str | None = None) -> str:
+        p = project if project is not None else (
+            self._session.project if self._session else None
+        )
+        if p:
+            return ProjectRepository.sessions_dir(p)
+        ensure_dirs()
+        return SESSIONS_DIR
+
+    def _start_new_session(self, project: str | None = None, temp: bool = False) -> None:
         system = None
         if project:
             proj = ProjectRepository.get(project)
             system = proj.system_prompt if proj else None
         self._session = Session(
-            name="__unsaved__",
+            name=_TEMP if temp else _UNSAVED,
             project=project,
             system_prompt=system,
+            is_temp=temp,
         )
+        self._title_generated = False
         self.query_one(MessageView).clear()
         self._reset_process()
         self._update_header()
 
     def _load_session(self, name: str, project: str | None) -> None:
-        if project:
-            sd = ProjectRepository.sessions_dir(project)
-        else:
-            ensure_dirs()
-            sd = SESSIONS_DIR
         try:
-            self._session = Session.load(sd, name)
+            self._session = Session.load(self._sessions_dir(project), name)
+            self._title_generated = bool(self._session.title)
             mv = self.query_one(MessageView)
             mv.render_history(self._session.messages, self._ai_name)
             self._reset_process()
@@ -186,23 +216,86 @@ class ZncApp(App):
             self._write_status(f"session not found: {name}", "red")
 
     def _save_session(self, name: str | None = None) -> None:
-        if not self._session:
+        if not self._session or self._session.is_temp:
             return
         if name:
             self._session.name = name
-        elif self._session.name == "__unsaved__":
+        elif self._session.name in (_UNSAVED, _TEMP):
             from znc.cli.utils import generate_default_session_name
             self._session.name = generate_default_session_name()
 
-        if self._session.project:
-            sd = ProjectRepository.sessions_dir(self._session.project)
-        else:
-            ensure_dirs()
-            sd = SESSIONS_DIR
+        sd = self._sessions_dir()
         path = self._session.save(sd)
         self._write_status(f"saved: {path}", "green")
         self._update_header()
         self.query_one(Sidebar).refresh_lists()
+
+    def _rename_session_file(self, old_name: str, new_name: str) -> None:
+        """파일을 rename 하고 Session.name + title 갱신."""
+        sd = self._sessions_dir()
+        old_path = os.path.join(sd, f"{old_name}.json")
+        new_path = os.path.join(sd, f"{new_name}.json")
+        if not os.path.exists(old_path):
+            return
+        os.rename(old_path, new_path)
+        # 파일 내부 name 필드도 갱신
+        try:
+            import json
+            with open(new_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            d["name"] = new_name
+            with open(new_path, "w", encoding="utf-8") as f:
+                json.dump(d, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+        if self._session and self._session.name == old_name:
+            self._session.name = new_name
+            self._update_header()
+        self.query_one(Sidebar).refresh_lists()
+
+    # ------------------------------------------------------------------
+    # Auto-title
+    # ------------------------------------------------------------------
+    def _maybe_generate_title(self) -> None:
+        """
+        첫 응답 완료 후 백그라운드에서 제목 생성.
+        이미 제목이 있거나 메시지가 부족하면 스킵.
+        """
+        if not self._session:
+            return
+        if self._title_generated:
+            return
+        if self._session.is_temp:
+            return
+        if self._session.name in (_UNSAVED, _TEMP):
+            return
+        if len(self._session.messages) < 2:
+            return
+        if not self._backend:
+            return
+
+        session_snapshot = self._session
+        backend_snapshot = self._backend
+
+        def run():
+            from znc.cli.utils import generate_session_title
+            title = generate_session_title(session_snapshot, backend_snapshot)
+            if title and title != session_snapshot.name:
+                session_snapshot.title = title
+                # 파일에 title 필드 저장
+                try:
+                    sd = self._sessions_dir(session_snapshot.project)
+                    session_snapshot.save(sd)
+                except Exception:
+                    pass
+                self.call_from_thread(self._on_title_generated, session_snapshot.name, title)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_title_generated(self, session_name: str, title: str) -> None:
+        self._title_generated = True
+        self._update_header()
+        self.query_one(Sidebar).update_session_title(session_name, title)
 
     # ------------------------------------------------------------------
     # Chat
@@ -221,11 +314,11 @@ class ZncApp(App):
         return prompt
 
     def _build_system(self, extra: str = "") -> str:
-        parts = []
         mem_ctx = build_memory_context()
         effective = self._persona.build_system_prompt(
             extra_context="\n".join(filter(None, [mem_ctx, extra]))
         )
+        parts = []
         if self._session and self._session.system_prompt:
             parts.append(self._session.system_prompt)
         parts.append(effective)
@@ -240,6 +333,17 @@ class ZncApp(App):
         if not self._session:
             self._start_new_session()
 
+        # 첫 메시지라면 세션 파일을 미리 생성 (제목 생성 전 저장 기반)
+        if (not self._session.is_temp
+                and self._session.name in (_UNSAVED, _TEMP)
+                and not self._session.messages):
+            from znc.cli.utils import generate_default_session_name
+            self._session.name = generate_default_session_name()
+            sd = self._sessions_dir()
+            self._session.save(sd)
+            self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+
         self._reset_process()
         self._step(Stage.LOADING)
 
@@ -247,7 +351,6 @@ class ZncApp(App):
         self._session.append(msg)
         self.query_one(MessageView).append_message(msg, self._ai_name)
 
-        # 메모리 컨텍스트 조회
         mem_items = load_all_memory()
         if mem_items:
             self._step(Stage.MEMORY, f"{len(mem_items)} items")
@@ -258,18 +361,16 @@ class ZncApp(App):
         self._streaming = True
 
         mv = self.query_one(MessageView)
-
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
-
-        first_token_received = False
+        first_token = False
 
         def run_stream():
-            nonlocal first_token_received
+            nonlocal first_token
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
-                    if not first_token_received:
-                        first_token_received = True
+                    if not first_token:
+                        first_token = True
                         self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
@@ -287,10 +388,21 @@ class ZncApp(App):
         self._stream_buffer = ""
         if self._session and content:
             self._session.append(Message(role="assistant", content=content))
+            # 세션 저장 (임시 채팅 제외)
+            if not self._session.is_temp:
+                try:
+                    self._session.save(self._sessions_dir())
+                except Exception:
+                    pass
+            # auto 메모리 추출
             if self._backend:
                 def _extract():
                     extract_and_save_auto(content, self._backend)
                 threading.Thread(target=_extract, daemon=True).start()
+            # auto-title: 첫 응답 완료 후 1회만 실행
+            if not self._title_generated:
+                self._maybe_generate_title()
+
         self._step(Stage.DONE)
         self.query_one(MessageView).write("")
         self.query_one(InputBar).focus_input()
@@ -369,7 +481,6 @@ class ZncApp(App):
         engines = self._settings.get("search_engines", ["ddg", "naver"])
         serper_key = self._settings.get("google_serper_key", "")
         engine_label = "+".join(engines)
-
         self._step(Stage.SEARCH, f'"{query}"  [{engine_label}]')
 
         def run():
@@ -399,6 +510,16 @@ class ZncApp(App):
     def _send_message_with_context(self, text: str) -> None:
         if not self._backend or not self._session:
             return
+        # 사용자 질문을 히스토리에 남김 (검색 쿼리 기반)
+        if (not self._session.is_temp
+                and self._session.name in (_UNSAVED, _TEMP)
+                and not self._session.messages):
+            from znc.cli.utils import generate_default_session_name
+            self._session.name = generate_default_session_name()
+            self._session.save(self._sessions_dir())
+            self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+
         self._stream_buffer = ""
         self._streaming = True
         prompt = self._build_prompt() + f"\n[context]\n{text}\n{self._ai_name}:"
@@ -407,15 +528,14 @@ class ZncApp(App):
 
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
-
-        first_token_received = False
+        first_token = False
 
         def run_stream():
-            nonlocal first_token_received
+            nonlocal first_token
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
-                    if not first_token_received:
-                        first_token_received = True
+                    if not first_token:
+                        first_token = True
                         self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
@@ -434,7 +554,7 @@ class ZncApp(App):
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(f"znc — Chat Export\n{'─' * 44}\n")
-                f.write(f"Session : {self._session.name}\n\n")
+                f.write(f"Session : {self._session.display_title}\n\n")
                 for m in self._session.messages:
                     if m.role == "user":
                         f.write(f"you:\n{m.content}\n\n")
@@ -465,16 +585,43 @@ class ZncApp(App):
         self._load_session(event.name, event.project)
 
     def on_sidebar_new_session_requested(self, event: Sidebar.NewSessionRequested) -> None:
-        self._start_new_session(event.project)
+        self._start_new_session(event.project, temp=event.temp)
 
     def on_sidebar_new_project_requested(self, event: Sidebar.NewProjectRequested) -> None:
         self.action_new_project()
+
+    def on_sidebar_session_delete_requested(
+        self, event: Sidebar.SessionDeleteRequested
+    ) -> None:
+        sd = self._sessions_dir(event.project)
+        path = os.path.join(sd, f"{event.name}.json")
+        if os.path.exists(path):
+            os.remove(path)
+            self._write_status(f"deleted: {event.name}", "green")
+            if self._session and self._session.name == event.name:
+                self._session = None
+                self.query_one(MessageView).clear()
+                self._update_header()
+        self.query_one(Sidebar).refresh_lists()
+
+    def on_sidebar_session_rename_requested(
+        self, event: Sidebar.SessionRenameRequested
+    ) -> None:
+        def callback(new_name: str | None) -> None:
+            if new_name:
+                self._rename_session_file(event.name, new_name)
+        self.push_screen(RenameSessionScreen(event.name), callback)
 
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
     def action_new_session(self) -> None:
         self._start_new_session()
+        self.query_one(InputBar).focus_input()
+
+    def action_temp_session(self) -> None:
+        self._start_new_session(temp=True)
+        self.query_one(InputBar).focus_input()
 
     def action_new_project(self) -> None:
         def callback(name: str | None) -> None:
@@ -511,6 +658,13 @@ class ZncApp(App):
         self.query_one(InputBar).focus_input()
 
     def action_quit(self) -> None:
-        if self._session and self._session.messages and self._session.name != "__unsaved__":
-            self._save_session()
+        # 임시 채팅이 아닌 경우 자동 저장
+        if (self._session
+                and not self._session.is_temp
+                and self._session.messages
+                and self._session.name not in (_UNSAVED, _TEMP)):
+            try:
+                self._session.save(self._sessions_dir())
+            except Exception:
+                pass
         self.exit()

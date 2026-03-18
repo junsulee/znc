@@ -26,3 +26,6 @@ znc = "znc.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["znc*"]
+
+[tool.setuptools.package-data]
+"znc.tui" = ["*.tcss"]

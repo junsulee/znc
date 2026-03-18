@@ -324,13 +324,21 @@ class ZncApp(App):
 
     def _do_web_search(self, query: str) -> None:
         mv = self.query_one(MessageView)
-        mv.write_status(f'searching: "{query}"', "yellow")
+        engines = self._settings.get("search_engines", ["ddg", "naver"])
+        serper_key = self._settings.get("google_serper_key", "")
+        engine_label = "+".join(engines)
+        mv.write_status(f'searching [{engine_label}]: "{query}"', "yellow")
 
         def run():
             def progress(url, done, total):
                 if url:
                     self.call_from_thread(mv.write_status, f"  crawling {url[:60]}", "dim")
-            results, context = search_and_crawl(query, progress_callback=progress)
+            results, context = search_and_crawl(
+                query,
+                engines=engines,
+                google_serper_key=serper_key,
+                progress_callback=progress,
+            )
             if not context:
                 self.call_from_thread(mv.write_status, "no results found", "red")
                 return

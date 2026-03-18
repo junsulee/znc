@@ -20,6 +20,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "openai_api_key": "",
     "openai_model": "gpt-4o",
     "openai_base_url": "https://api.openai.com/v1",
+    "search_engines": ["ddg", "naver"],
+    "google_serper_key": "",
 }
 
 

@@ -5,7 +5,9 @@ znc TUI 메인 앱.
 ┌─────────────┬────────────────────────────────────────┐
 │  Sidebar    │  Header                                │
 │  (projects  │  MessageView (스크롤 채팅)              │
-│   sessions) │  InputBar                              │
+│   sessions) │  ProcessLog  (L 키 토글, 기본 hidden)  │
+│             │  StatusBar   (1줄 고정 상태 바)         │
+│             │  InputBar                              │
 └─────────────┴────────────────────────────────────────┘
               KeybindBar (dock=bottom)
 """
@@ -17,8 +19,7 @@ from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.css.query import NoMatches
-from textual.widgets import Footer, Header, Label, Static
+from textual.widgets import Label, Static
 
 from znc.backends.base import BaseBackend
 from znc.core.config import SESSIONS_DIR, ensure_dirs, load_settings
@@ -30,13 +31,16 @@ from znc.core.models import Message, Session
 from znc.core.persona import load_default_persona, load_persona, Persona
 from znc.core.repository import ProjectRepository
 from znc.core.web_search import search_and_crawl
+from znc.tui.process_state import ProcessState, Stage
 from znc.tui.screens.memory import MemoryScreen
 from znc.tui.screens.new_project import NewProjectScreen
 from znc.tui.screens.persona import PersonaScreen
 from znc.tui.screens.settings import SettingsScreen
 from znc.tui.widgets.chat_view import MessageView
 from znc.tui.widgets.input_bar import InputBar
+from znc.tui.widgets.process_log import ProcessLog
 from znc.tui.widgets.sidebar import Sidebar
+from znc.tui.widgets.status_bar import StatusBar
 
 CSS_PATH = Path(__file__).parent / "znc.tcss"
 
@@ -47,13 +51,14 @@ class ZncApp(App):
     CSS_PATH = CSS_PATH
 
     BINDINGS = [
-        Binding("ctrl+q",     "quit",          "종료",    show=True),
-        Binding("ctrl+s",     "open_settings", "설정",    show=True),
-        Binding("ctrl+p",     "open_persona",  "persona", show=True),
-        Binding("ctrl+m",     "open_memory",   "memory",  show=True),
-        Binding("ctrl+n",     "new_session",   "새 세션", show=True),
-        Binding("tab",        "focus_next",    "패널전환", show=True),
-        Binding("escape",     "focus_input",   "",        show=False),
+        Binding("ctrl+q", "quit",          "종료",    show=True),
+        Binding("ctrl+s", "open_settings", "설정",    show=True),
+        Binding("ctrl+p", "open_persona",  "persona", show=True),
+        Binding("ctrl+m", "open_memory",   "memory",  show=True),
+        Binding("ctrl+n", "new_session",   "새 세션", show=True),
+        Binding("l",      "toggle_log",    "log",     show=True),
+        Binding("tab",    "focus_next",    "패널전환", show=True),
+        Binding("escape", "focus_input",   "",        show=False),
     ]
 
     def __init__(self) -> None:
@@ -65,6 +70,7 @@ class ZncApp(App):
         self._ai_name: str = self._settings.get("ai_name", "znc")
         self._streaming = False
         self._stream_buffer = ""
+        self._ps = ProcessState()
 
     # ------------------------------------------------------------------
     # Layout
@@ -74,6 +80,8 @@ class ZncApp(App):
         with Static(id="chat-pane"):
             yield Static(id="chat-header")
             yield MessageView()
+            yield ProcessLog(self._ps)
+            yield StatusBar(self._ps)
             yield InputBar()
         yield Static(id="keybind-bar")
 
@@ -82,6 +90,25 @@ class ZncApp(App):
         self._update_header()
         self._update_keybind_bar()
         self.query_one(InputBar).focus_input()
+
+    # ------------------------------------------------------------------
+    # ProcessState helpers
+    # ------------------------------------------------------------------
+    def _step(self, stage: Stage, detail: str = "") -> None:
+        """단계 전환 — 메인 스레드에서 호출."""
+        self._ps.transition(stage, detail)
+        self.query_one(StatusBar).refresh()
+        self.query_one(ProcessLog).append_step()
+
+    def _step_from_thread(self, stage: Stage, detail: str = "") -> None:
+        """백그라운드 스레드에서 단계 전환."""
+        self.call_from_thread(self._step, stage, detail)
+
+    def _reset_process(self) -> None:
+        self._ps.reset()
+        self.query_one(StatusBar).refresh()
+        pl = self.query_one(ProcessLog)
+        pl.set_state(self._ps)
 
     # ------------------------------------------------------------------
     # Header / Keybind
@@ -108,6 +135,7 @@ class ZncApp(App):
             "[bold #58a6ff]^S[/] settings  "
             "[bold #58a6ff]^P[/] persona  "
             "[bold #58a6ff]^M[/] memory  "
+            "[bold #58a6ff]L[/] log  "
             "[bold #58a6ff]Tab[/] panel  "
             "[bold #58a6ff]^Q[/] quit  "
             "  /search /remember /forget /persona /clear /save /export"
@@ -139,6 +167,7 @@ class ZncApp(App):
             system_prompt=system,
         )
         self.query_one(MessageView).clear()
+        self._reset_process()
         self._update_header()
 
     def _load_session(self, name: str, project: str | None) -> None:
@@ -151,6 +180,7 @@ class ZncApp(App):
             self._session = Session.load(sd, name)
             mv = self.query_one(MessageView)
             mv.render_history(self._session.messages, self._ai_name)
+            self._reset_process()
             self._update_header()
         except FileNotFoundError:
             self._write_status(f"session not found: {name}", "red")
@@ -210,9 +240,17 @@ class ZncApp(App):
         if not self._session:
             self._start_new_session()
 
+        self._reset_process()
+        self._step(Stage.LOADING)
+
         msg = Message(role="user", content=user_text)
         self._session.append(msg)
         self.query_one(MessageView).append_message(msg, self._ai_name)
+
+        # 메모리 컨텍스트 조회
+        mem_items = load_all_memory()
+        if mem_items:
+            self._step(Stage.MEMORY, f"{len(mem_items)} items")
 
         prompt = self._build_prompt()
         system = self._build_system()
@@ -220,14 +258,23 @@ class ZncApp(App):
         self._streaming = True
 
         mv = self.query_one(MessageView)
+
+        self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
 
+        first_token_received = False
+
         def run_stream():
+            nonlocal first_token_received
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
+                    if not first_token_received:
+                        first_token_received = True
+                        self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
             except Exception as e:
+                self._step_from_thread(Stage.ERROR, str(e))
                 self.call_from_thread(self._write_status, f"stream error: {e}", "red")
             finally:
                 self.call_from_thread(self._on_stream_done)
@@ -240,12 +287,12 @@ class ZncApp(App):
         self._stream_buffer = ""
         if self._session and content:
             self._session.append(Message(role="assistant", content=content))
-            # auto 메모리 추출 (백그라운드)
             if self._backend:
                 def _extract():
                     extract_and_save_auto(content, self._backend)
                 threading.Thread(target=_extract, daemon=True).start()
-        self.query_one(MessageView).write("")  # 줄바꿈
+        self._step(Stage.DONE)
+        self.query_one(MessageView).write("")
         self.query_one(InputBar).focus_input()
 
     def _write_status(self, text: str, style: str = "yellow") -> None:
@@ -255,7 +302,6 @@ class ZncApp(App):
     # Slash commands
     # ------------------------------------------------------------------
     def _handle_slash(self, text: str) -> bool:
-        """슬래시 명령어 처리. 처리 완료 시 True 반환."""
         parts = text.split(None, 1)
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
@@ -266,22 +312,18 @@ class ZncApp(App):
                 return True
             self._do_web_search(arg)
             return True
-
         if cmd == "/remember":
-            if ":" in arg:
-                k, _, v = arg.partition(":")
-            else:
-                k, v = arg, arg
+            k, _, v = arg.partition(":") if ":" in arg else (arg, "", arg)
             add_manual(k.strip(), v.strip())
             self._write_status(f"remembered: {k.strip()}", "green")
             return True
-
         if cmd == "/forget":
             removed = remove_manual(arg.strip())
-            msg = f"forgotten: {arg.strip()}" if removed else f"not found: {arg.strip()}"
-            self._write_status(msg, "green" if removed else "yellow")
+            self._write_status(
+                f"forgotten: {arg.strip()}" if removed else f"not found: {arg.strip()}",
+                "green" if removed else "yellow",
+            )
             return True
-
         if cmd == "/persona":
             if arg:
                 p = load_persona(arg.strip())
@@ -294,45 +336,48 @@ class ZncApp(App):
             else:
                 self.action_open_persona()
             return True
-
         if cmd == "/clear":
             if self._session:
                 self._session.messages.clear()
             self.query_one(MessageView).clear()
+            self._reset_process()
             return True
-
         if cmd == "/save":
             self._save_session(arg.strip() or None)
             return True
-
         if cmd == "/export":
             if not arg:
                 self._write_status("usage: /export <filepath>")
                 return True
             self._do_export(arg.strip())
             return True
-
         if cmd == "/memory":
             self.action_open_memory()
             return True
-
         if cmd == "/settings":
             self.action_open_settings()
             return True
-
         return False
 
     def _do_web_search(self, query: str) -> None:
-        mv = self.query_one(MessageView)
+        if not self._session:
+            self._start_new_session()
+
+        self._reset_process()
+        self._step(Stage.LOADING)
+
         engines = self._settings.get("search_engines", ["ddg", "naver"])
         serper_key = self._settings.get("google_serper_key", "")
         engine_label = "+".join(engines)
-        mv.write_status(f'searching [{engine_label}]: "{query}"', "yellow")
+
+        self._step(Stage.SEARCH, f'"{query}"  [{engine_label}]')
 
         def run():
-            def progress(url, done, total):
+            def progress(url: str, done: int, total: int) -> None:
                 if url:
-                    self.call_from_thread(mv.write_status, f"  crawling {url[:60]}", "dim")
+                    domain = url.split("/")[2] if url.count("/") >= 2 else url
+                    self._step_from_thread(Stage.CRAWL, domain)
+
             results, context = search_and_crawl(
                 query,
                 engines=engines,
@@ -340,7 +385,8 @@ class ZncApp(App):
                 progress_callback=progress,
             )
             if not context:
-                self.call_from_thread(mv.write_status, "no results found", "red")
+                self._step_from_thread(Stage.ERROR, "no results found")
+                self.call_from_thread(self._write_status, "no results found", "red")
                 return
             if self._session:
                 self.call_from_thread(
@@ -351,7 +397,6 @@ class ZncApp(App):
         threading.Thread(target=run, daemon=True).start()
 
     def _send_message_with_context(self, text: str) -> None:
-        """컨텍스트가 붙은 메시지를 전송 (user 역할로 표시하지 않음)."""
         if not self._backend or not self._session:
             return
         self._stream_buffer = ""
@@ -359,14 +404,23 @@ class ZncApp(App):
         prompt = self._build_prompt() + f"\n[context]\n{text}\n{self._ai_name}:"
         system = self._build_system()
         mv = self.query_one(MessageView)
+
+        self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
 
+        first_token_received = False
+
         def run_stream():
+            nonlocal first_token_received
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
+                    if not first_token_received:
+                        first_token_received = True
+                        self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
             except Exception as e:
+                self._step_from_thread(Stage.ERROR, str(e))
                 self.call_from_thread(self._write_status, f"error: {e}", "red")
             finally:
                 self.call_from_thread(self._on_stream_done)
@@ -447,6 +501,11 @@ class ZncApp(App):
 
     def action_open_memory(self) -> None:
         self.push_screen(MemoryScreen())
+
+    def action_toggle_log(self) -> None:
+        pl = self.query_one(ProcessLog)
+        visible = pl.toggle()
+        self.query_one(StatusBar).set_log_visible(visible)
 
     def action_focus_input(self) -> None:
         self.query_one(InputBar).focus_input()

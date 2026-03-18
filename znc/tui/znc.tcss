@@ -113,6 +113,34 @@ Screen {
     scrollbar-color: $border;
 }
 
+/* ── StatusBar / ProcessLog ─────────────────────── */
+#status-bar {
+    height: 1;
+    background: $bg;
+    border-top: tall $bg-active;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#process-log {
+    background: $bg;
+    border-top: tall $bg-active;
+    border-bottom: tall $bg-active;
+    display: none;
+}
+
+#process-log.--visible {
+    display: block;
+    height: 8;
+}
+
+#proc-log {
+    background: $bg;
+    padding: 0 1;
+    scrollbar-background: $bg;
+    scrollbar-color: $bg-active;
+}
+
 .msg-block {
     margin-bottom: 1;
     padding: 0;

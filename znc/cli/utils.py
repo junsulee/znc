@@ -50,17 +50,20 @@ def generate_session_title(session: Session, backend: BaseBackend) -> str:
         return generate_default_session_name()
 
     lines = "\n".join(
-        f"{m.role.capitalize()}: {m.content}" for m in session.messages
+        f"{m.role.capitalize()}: {m.content}" for m in session.messages[:6]
     )
     prompt = (
-        "아래 대화 내용을 한 줄로 자연스럽게 요약해 파일명으로 쓸 수 있는 제목을 만들어줘.\n"
-        "공백은 하이픈(-)으로 대체하고 특수문자는 제거해줘.\n\n"
+        "아래 대화 내용을 한 줄로 자연스럽게 요약해 파일명으로 쓸 수 있는 짧은 제목을 만들어줘.\n"
+        "공백은 하이픈(-)으로 대체하고 특수문자는 제거해줘. 20자 이내로.\n\n"
         f"{lines}\n\n제목:"
     )
     try:
         title = backend.generate(prompt)
-        title = title.strip().replace(" ", "-").replace("/", "-")
-        return title or generate_default_session_name()
+        title = title.strip().splitlines()[0]  # 첫 줄만
+        title = title.replace(" ", "-").replace("/", "-")
+        # 따옴표 제거
+        title = title.strip("\"'""''")
+        return title[:40] or generate_default_session_name()
     except Exception:
         return generate_default_session_name()
 

@@ -5,7 +5,7 @@ znc TUI 메인 앱.
 ┌─────────────┬────────────────────────────────────────┐
 │  Sidebar    │  Header                                │
 │  (projects  │  MessageView (스크롤 채팅)              │
-│   sessions) │  ProcessLog  (L 키 토글, 기본 hidden)  │
+│   sessions) │  ProcessLog  (Ctrl+L 토글, 기본 hidden)│
 │             │  StatusBar   (1줄 고정 상태 바)         │
 │             │  InputBar                              │
 └─────────────┴────────────────────────────────────────┘
@@ -15,9 +15,9 @@ znc TUI 메인 앱.
   Ctrl+N   새 채팅
   Ctrl+T   임시 채팅 (저장 안 함)
   Ctrl+S   설정
-  Ctrl+P   Persona
-  Ctrl+M   메모리
-  L        프로세스 로그 토글
+  Ctrl+P   Persona  (ENABLE_COMMAND_PALETTE=False 로 Textual 팔레트 비활성화)
+  Ctrl+E   메모리   (Ctrl+M = Enter 이므로 사용 불가)
+  Ctrl+L   프로세스 로그 토글
   Tab      사이드바 ↔ 채팅창
   Ctrl+Q   종료
 """
@@ -66,16 +66,20 @@ class ZncApp(App):
 
     CSS_PATH = CSS_PATH
 
+    # Textual 기본 커맨드 팔레트(Ctrl+P)를 비활성화.
+    # 활성 시 Ctrl+P 가 팔레트로 가로채여 persona 팝업이 열리지 않음.
+    ENABLE_COMMAND_PALETTE = False
+
     BINDINGS = [
-        Binding("ctrl+n", "new_session",   "새 채팅",  show=True),
-        Binding("ctrl+t", "temp_session",  "임시 채팅", show=True),
-        Binding("ctrl+s", "open_settings", "설정",    show=True),
-        Binding("ctrl+p", "open_persona",  "persona", show=True),
-        Binding("ctrl+m", "open_memory",   "memory",  show=True),
-        Binding("l",      "toggle_log",    "log",     show=True),
-        Binding("tab",    "focus_next",    "패널전환", show=True),
-        Binding("ctrl+q", "quit",          "종료",    show=True),
-        Binding("escape", "focus_input",   "",        show=False),
+        Binding("ctrl+n", "new_session",   "새 채팅",   show=True,  priority=True),
+        Binding("ctrl+t", "temp_session",  "임시 채팅", show=True,  priority=True),
+        Binding("ctrl+s", "open_settings", "설정",      show=True,  priority=True),
+        Binding("ctrl+p", "open_persona",  "persona",   show=True,  priority=True),
+        Binding("ctrl+e", "open_memory",   "memory",    show=True,  priority=True),
+        Binding("ctrl+l", "toggle_log",    "log",       show=True,  priority=True),
+        Binding("tab",    "focus_next",    "패널전환",  show=True),
+        Binding("ctrl+q", "quit",          "종료",      show=True,  priority=True),
+        Binding("escape", "focus_input",   "",          show=False),
     ]
 
     def __init__(self) -> None:
@@ -87,6 +91,7 @@ class ZncApp(App):
         self._ai_name: str = self._settings.get("ai_name", "znc")
         self._streaming = False
         self._stream_buffer = ""
+        self._stream_id: int = 0   # 세션 전환 시 증가 → 구 스트림 콜백 무효화
         self._ps = ProcessState()
         self._title_generated = False  # 현재 세션 제목 생성 완료 여부
 
@@ -159,8 +164,8 @@ class ZncApp(App):
             "[bold #58a6ff]^T[/] temp  "
             "[bold #58a6ff]^S[/] settings  "
             "[bold #58a6ff]^P[/] persona  "
-            "[bold #58a6ff]^M[/] memory  "
-            "[bold #58a6ff]L[/] log  "
+            "[bold #58a6ff]^E[/] memory  "
+            "[bold #58a6ff]^L[/] log  "
             "[bold #58a6ff]Tab[/] panel  "
             "[bold #58a6ff]^Q[/] quit"
         )
@@ -190,6 +195,11 @@ class ZncApp(App):
         return SESSIONS_DIR
 
     def _start_new_session(self, project: str | None = None, temp: bool = False) -> None:
+        # 진행 중인 스트림 무효화 — 임시 세션 등에서 전환 시 내용 누수 방지
+        self._stream_id += 1
+        self._streaming = False
+        self._stream_buffer = ""
+
         system = None
         if project:
             proj = ProjectRepository.get(project)
@@ -201,15 +211,23 @@ class ZncApp(App):
             is_temp=temp,
         )
         self._title_generated = False
-        self.query_one(MessageView).clear()
+        mv = self.query_one(MessageView)
+        mv.end_streaming()
+        mv.clear()
         self._reset_process()
         self._update_header()
 
     def _load_session(self, name: str, project: str | None) -> None:
+        # 진행 중인 스트림 무효화
+        self._stream_id += 1
+        self._streaming = False
+        self._stream_buffer = ""
+
         try:
             self._session = Session.load(self._sessions_dir(project), name)
             self._title_generated = bool(self._session.title)
             mv = self.query_one(MessageView)
+            mv.end_streaming()
             mv.render_history(self._session.messages, self._ai_name)
             self._reset_process()
             self._update_header()
@@ -361,6 +379,10 @@ class ZncApp(App):
         self._stream_buffer = ""
         self._streaming = True
 
+        # 이 스트림의 고유 ID — 세션 전환 시 _stream_id 가 증가하면 콜백 무시
+        self._stream_id += 1
+        my_stream_id = self._stream_id
+
         mv = self.query_one(MessageView)
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
@@ -370,16 +392,24 @@ class ZncApp(App):
             nonlocal first_token
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
+                    if self._stream_id != my_stream_id:
+                        return  # 세션이 전환됨 — 이 스트림 폐기
                     if not first_token:
                         first_token = True
                         self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
             except Exception as e:
-                self._step_from_thread(Stage.ERROR, str(e))
-                self.call_from_thread(self._write_status, f"stream error: {e}", "red")
+                if self._stream_id == my_stream_id:
+                    self._step_from_thread(Stage.ERROR, str(e))
+                    self.call_from_thread(self._write_status, f"stream error: {e}", "red")
             finally:
-                self.call_from_thread(self._on_stream_done)
+                def on_done():
+                    if self._stream_id == my_stream_id:
+                        self._on_stream_done()
+                    else:
+                        self._streaming = False
+                self.call_from_thread(on_done)
 
         threading.Thread(target=run_stream, daemon=True).start()
 
@@ -523,6 +553,8 @@ class ZncApp(App):
 
         self._stream_buffer = ""
         self._streaming = True
+        self._stream_id += 1
+        my_stream_id = self._stream_id
         prompt = self._build_prompt() + f"\n[context]\n{text}\n{self._ai_name}:"
         system = self._build_system()
         mv = self.query_one(MessageView)
@@ -535,16 +567,24 @@ class ZncApp(App):
             nonlocal first_token
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
+                    if self._stream_id != my_stream_id:
+                        return
                     if not first_token:
                         first_token = True
                         self._step_from_thread(Stage.GENERATING)
                     self._stream_buffer += token
                     self.call_from_thread(mv.append_token, token)
             except Exception as e:
-                self._step_from_thread(Stage.ERROR, str(e))
-                self.call_from_thread(self._write_status, f"error: {e}", "red")
+                if self._stream_id == my_stream_id:
+                    self._step_from_thread(Stage.ERROR, str(e))
+                    self.call_from_thread(self._write_status, f"error: {e}", "red")
             finally:
-                self.call_from_thread(self._on_stream_done)
+                def on_done():
+                    if self._stream_id == my_stream_id:
+                        self._on_stream_done()
+                    else:
+                        self._streaming = False
+                self.call_from_thread(on_done)
 
         threading.Thread(target=run_stream, daemon=True).start()
 

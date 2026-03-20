@@ -101,7 +101,7 @@ class StatusBar(Widget):
         t.append(elapsed, style="dim #484f58")
 
         # 로그 토글 힌트
-        log_marker = "[dim][L] log[/dim]" if not self._log_visible else "[dim #58a6ff][L] log ▲[/]"
+        log_marker = "[dim][^L] log[/dim]" if not self._log_visible else "[dim #58a6ff][^L] log ▲[/]"
         t.append("  ")
         t.append_text(Text.from_markup(log_marker))
 

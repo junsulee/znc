@@ -176,10 +176,31 @@ def run_chat_loop(
     ai_name: str,
     lang: str,
 ) -> None:
-    """대화 루프. session.messages 에 메시지를 추가한다."""
+    """
+    대화 루프. session.messages 에 메시지를 추가한다.
+
+    슬래시 명령어:
+      /search <query>       웹 검색 후 컨텍스트 삽입
+      /remember <key>:<val> 장기 메모리 저장
+      /forget <key>         장기 메모리 삭제
+      /clear                대화 초기화
+      /save <name>          세션 저장 이름 지정
+      /memory               저장된 메모리 목록
+      /exit                 종료
+    """
     from znc.core.i18n import get_message
+    from znc.core.config import load_settings
+
+    settings = load_settings()
+    engines = settings.get("search_engines", ["ddg", "naver"])
+    serper_key = settings.get("google_serper_key", "")
 
     click.secho(get_message(lang, "exit_tip"), fg="yellow")
+    click.secho(
+        "  /search <query>  /remember <k>:<v>  /forget <k>  /clear  /memory",
+        fg="blue",
+        dim=True,
+    )
 
     while True:
         try:
@@ -194,10 +215,62 @@ def run_chat_loop(
         if not user_input:
             continue
 
+        # ── 슬래시 명령어 처리 ────────────────────────────────────────
+        if user_input.startswith("/"):
+            parts = user_input.split(None, 1)
+            cmd = parts[0].lower()
+            arg = parts[1] if len(parts) > 1 else ""
+
+            if cmd == "/search":
+                if not arg:
+                    click.secho("usage: /search <검색어>", fg="yellow")
+                    continue
+                _cli_search(arg, engines, serper_key, session, backend, ai_name)
+                continue
+
+            if cmd == "/remember":
+                _cli_remember(arg)
+                continue
+
+            if cmd == "/forget":
+                _cli_forget(arg)
+                continue
+
+            if cmd == "/clear":
+                session.messages.clear()
+                click.secho("대화 기록을 초기화했습니다.", fg="cyan")
+                continue
+
+            if cmd == "/memory":
+                _cli_show_memory()
+                continue
+
+            if cmd == "/save":
+                if arg.strip():
+                    session.name = arg.strip()
+                    click.secho(f"세션 이름이 '{session.name}' 으로 설정됩니다.", fg="cyan")
+                continue
+
+            click.secho(f"알 수 없는 명령어: {cmd}", fg="yellow")
+            continue
+        # ──────────────────────────────────────────────────────────────
+
         from znc.core.models import Message
+        from znc.core.memory import build_memory_context
+
+        # 메모리 컨텍스트 삽입
+        mem_ctx = build_memory_context(user_input)
 
         session.append(Message(role="user", content=user_input))
         prompt = build_prompt(session, ai_name)
+
+        # 시스템 프롬프트 (메모리 + 세션 시스템 프롬프트 조합)
+        system_parts = []
+        if session.system_prompt:
+            system_parts.append(session.system_prompt)
+        if mem_ctx:
+            system_parts.append(mem_ctx)
+        effective_system = "\n".join(system_parts) or None
 
         click.secho("\n" + "─" * 44, fg="cyan")
         click.secho(f"{ai_name}:", fg="green", bold=True)
@@ -205,7 +278,7 @@ def run_chat_loop(
 
         accumulated = ""
         try:
-            for token in backend.stream(prompt, system_prompt=session.system_prompt):
+            for token in backend.stream(prompt, system_prompt=effective_system):
                 print(token, end="", flush=True)
                 accumulated += token
             print()
@@ -215,3 +288,110 @@ def run_chat_loop(
             continue
 
         session.append(Message(role="assistant", content=accumulated))
+
+
+# ---------------------------------------------------------------------------
+# 헤드리스 슬래시 명령어 구현
+# ---------------------------------------------------------------------------
+
+def _cli_search(
+    query: str,
+    engines: list[str],
+    serper_key: str,
+    session: Session,
+    backend: BaseBackend,
+    ai_name: str,
+) -> None:
+    """웹 검색 → 크롤링 → 컨텍스트 삽입 → 모델 응답."""
+    from znc.core.web_search import search_and_crawl
+    from znc.core.models import Message
+
+    engine_label = "+".join(engines)
+    click.secho(f'검색 중 [{engine_label}]: "{query}"', fg="yellow")
+
+    def progress(url: str, done: int, total: int) -> None:
+        if url:
+            domain = url.split("/")[2] if url.count("/") >= 2 else url
+            click.secho(f"  크롤링: {domain}", fg="blue", dim=True)
+
+    results, context = search_and_crawl(
+        query,
+        engines=engines,
+        google_serper_key=serper_key,
+        progress_callback=progress,
+    )
+
+    if not context:
+        click.secho("검색 결과가 없습니다.", fg="red")
+        return
+
+    click.secho(f"  결과 {len(results)}건 수집 완료", fg="cyan")
+
+    # 검색 컨텍스트를 포함한 프롬프트 구성
+    context_prompt = (
+        f"[웹 검색 컨텍스트: {query}]\n{context}\n\n"
+        f"위 검색 결과를 바탕으로 '{query}' 에 대해 답해줘."
+    )
+    session.append(Message(role="user", content=f"/search {query}"))
+    full_prompt = build_prompt(session, ai_name)
+    session.messages.pop()  # 프롬프트 빌드용 임시 메시지 제거
+
+    actual_prompt = full_prompt.rstrip(f"{ai_name}:").rstrip() + \
+        f"\n[context]\n{context_prompt}\n{ai_name}:"
+
+    click.secho("\n" + "─" * 44, fg="cyan")
+    click.secho(f"{ai_name}:", fg="green", bold=True)
+    click.secho("─" * 44, fg="cyan")
+
+    accumulated = ""
+    try:
+        for token in backend.stream(actual_prompt, system_prompt=session.system_prompt):
+            print(token, end="", flush=True)
+            accumulated += token
+        print()
+    except Exception as e:
+        click.secho(f"\n❌ API 오류: {e}", fg="red")
+        return
+
+    # 검색 질문과 답변을 히스토리에 추가
+    session.append(Message(role="user", content=f"[search: {query}]"))
+    session.append(Message(role="assistant", content=accumulated))
+
+
+def _cli_remember(arg: str) -> None:
+    from znc.core.memory import add_manual
+    if ":" in arg:
+        key, _, val = arg.partition(":")
+    else:
+        key, val = arg.strip(), arg.strip()
+    key, val = key.strip(), val.strip()
+    if not key:
+        click.secho("usage: /remember <key>:<value>", fg="yellow")
+        return
+    add_manual(key, val)
+    click.secho(f"기억 저장: {key} = {val}", fg="green")
+
+
+def _cli_forget(arg: str) -> None:
+    from znc.core.memory import remove_manual
+    key = arg.strip()
+    if not key:
+        click.secho("usage: /forget <key>", fg="yellow")
+        return
+    removed = remove_manual(key)
+    if removed:
+        click.secho(f"기억 삭제: {key}", fg="green")
+    else:
+        click.secho(f"해당 키를 찾을 수 없습니다: {key}", fg="yellow")
+
+
+def _cli_show_memory() -> None:
+    from znc.core.memory import load_all
+    items = load_all()
+    if not items:
+        click.secho("저장된 메모리가 없습니다.", fg="cyan")
+        return
+    click.secho("저장된 메모리:", fg="cyan")
+    for item in items:
+        src = "manual" if item.source == "manual" else "auto"
+        click.secho(f"  [{src}] {item.key}: {item.value}", fg="white")

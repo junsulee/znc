@@ -13,7 +13,7 @@ from textual.widgets import RichLog
 
 from znc.tui.process_state import ProcessState, Stage, STAGE_LABEL, STAGE_STYLE
 
-_PANEL_HEIGHT = 7
+_PANEL_HEIGHT = 10  # sub_items 표시를 위해 기본 높이 확장
 
 
 class ProcessLog(Widget):
@@ -68,6 +68,11 @@ class ProcessLog(Widget):
             log = self.query_one("#proc-log", RichLog)
             log.write(self._format_step(self._ps.steps[-1]))
 
+    def refresh_last_step(self) -> None:
+        """마지막 스텝에 sub_item 이 추가됐을 때 전체 재그림."""
+        if "--visible" in self.classes:
+            self._redraw()
+
     # ── Internal ────────────────────────────────────────────────
     def _redraw(self) -> None:
         log = self.query_one("#proc-log", RichLog)
@@ -85,4 +90,8 @@ class ProcessLog(Widget):
         if step.detail:
             detail = step.detail if len(step.detail) <= 60 else step.detail[:57] + "..."
             t.append(detail, style="#8b949e")
+        # sub_items: Cursor 스타일 세부 항목
+        for sub in step.sub_items:
+            t.append(f"\n          ▸ ", style="dim #484f58")
+            t.append(sub[:72] if len(sub) > 72 else sub, style="dim #8b949e")
         return t

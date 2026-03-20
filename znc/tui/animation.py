@@ -21,13 +21,12 @@ def shimmer(text: str, phase: int, base_style: str) -> Text:
     """
     Cursor 스타일 shimmer.
 
-    밝은 점(phase % len)이 텍스트를 좌→우로 스캔한다.
-    각 글자는 밝은 점과의 거리에 따라 밝기가 결정된다:
-      dist 0  → bold 흰색 하이라이트
+    밝은 점(phase % len)이 텍스트를 좌→우로 스캔.
+    최소 밝기를 base_style 의 dim 으로 유지해 항상 읽힘.
+
+      dist 0  → bold #e6edf3 (흰색 하이라이트)
       dist 1  → bold base_style
-      dist 2  → base_style
-      dist 3-4 → dim base_style
-      그 외   → 매우 dim
+      dist 2+ → base_style / dim base_style
     """
     t = Text()
     n = len(text)
@@ -41,10 +40,9 @@ def shimmer(text: str, phase: int, base_style: str) -> Text:
             t.append(char, style="bold #e6edf3")
         elif dist == 1:
             t.append(char, style=f"bold {base_style}")
-        elif dist == 2:
+        elif dist <= 3:
             t.append(char, style=base_style)
-        elif dist <= 4:
-            t.append(char, style=f"dim {base_style}")
         else:
-            t.append(char, style="dim #484f58")
+            # 최소 밝기: dim base_style — 항상 읽히도록 (dim #484f58 는 사용 안 함)
+            t.append(char, style=f"dim {base_style}")
     return t

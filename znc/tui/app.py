@@ -134,6 +134,7 @@ class ZncApp(App):
         Binding("ctrl+w", "save_message",       "save msg",  show=True,  priority=True),
         Binding("ctrl+g", "open_about",         "about",     show=True,  priority=True),
         Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
+        Binding("f2",     "readline_input",      "한/영입력", show=True,  priority=True),
         Binding("tab",    "focus_next",         "패널전환",  show=True),
         Binding("ctrl+q", "quit",               "종료",      show=True,  priority=True),
         Binding("escape", "escape_or_stop",        "",          show=False),
@@ -277,7 +278,7 @@ class ZncApp(App):
             item("kbar_save"), item("kbar_new"), item("kbar_temp"),
             item("kbar_panel"), item("kbar_settings"), item("kbar_persona"),
             item("kbar_memory"), item("kbar_log"), item("kbar_about"),
-            item("kbar_help"), item("kbar_focus"), item("kbar_quit"),
+            item("kbar_help"), item("kbar_f2"), item("kbar_focus"), item("kbar_quit"),
         ])
 
         from znc.version import VERSION, BUILD
@@ -1191,6 +1192,64 @@ class ZncApp(App):
 
     def action_open_command_palette(self) -> None:
         self.push_screen(CommandPaletteScreen())
+
+    async def action_readline_input(self) -> None:
+        """
+        F2: 시스템 readline 으로 입력 — 완전한 한국어 IME 호환.
+
+        Textual 은 raw 모드로 키를 처리해 IME 와 충돌할 수 있다.
+        run_in_terminal() 로 TUI 를 잠깐 내려놓고 cooked 모드 (readline) 에서
+        입력받으면 시스템과 완전히 동일하게 동작한다.
+
+        사용법:
+          F2 → TUI 잠깐 사라짐 → 터미널에서 자유롭게 입력 (한국어 IME 완전 지원)
+              → Enter 로 전송 / Ctrl+D 취소 / \\ 줄 연속
+        """
+        lang = self._settings.get("lang", "ko")
+        if lang == "ko":
+            hint = "  메시지 입력 (Enter=전송  Ctrl+D=취소  줄끝\\=줄바꿈)"
+        else:
+            hint = "  Type message  (Enter=send  Ctrl+D=cancel  \\=newline)"
+
+        result: list[str | None] = []
+
+        def _get_input() -> None:
+            try:
+                # readline 활성화 (방향키, 히스토리 지원)
+                try:
+                    import readline as _rl  # noqa
+                except ImportError:
+                    pass
+
+                import sys
+                sys.stdout.write("\n" + hint + "\n")
+                sys.stdout.flush()
+
+                lines: list[str] = []
+                while True:
+                    try:
+                        line = input("> ")
+                    except EOFError:
+                        break
+                    # 줄 연속: 끝이 \\
+                    if line.endswith("\\"):
+                        lines.append(line[:-1])
+                        continue
+                    lines.append(line)
+                    break   # 단일 Enter = 전송
+
+                text = "\n".join(lines).strip()
+                result.append(text if text else None)
+            except KeyboardInterrupt:
+                result.append(None)
+
+        await self.run_in_terminal(_get_input)
+
+        text = result[0] if result else None
+        if text:
+            import unicodedata
+            text = unicodedata.normalize("NFC", text)
+            self._send_message(text)
 
     def on_static_click(self, event) -> None:
         """하단 바 클릭 → 커맨드 팔레트 열기."""

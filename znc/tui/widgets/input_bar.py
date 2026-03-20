@@ -151,9 +151,10 @@ class InputBar(Widget):
         inp = self.query_one("#input-field", Input)
         current = inp.value
         all_lines = self._prev_lines + [current]
-        # 최소 한 줄 이상 내용 있어야 제출
         full_raw = "\n".join(all_lines)
-        text = _sanitize(full_raw.strip())
+        # Input 위젯은 시스템 IME 가 완성형으로 전달한 텍스트를 받으므로
+        # ghost 제거 불필요 (오탐 위험). NFC 정규화만 적용.
+        text = unicodedata.normalize("NFC", full_raw.strip())
         if not text:
             return
         inp.value = ""

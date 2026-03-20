@@ -85,7 +85,7 @@ class ZncApp(App):
         Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
         Binding("tab",    "focus_next",         "패널전환",  show=True),
         Binding("ctrl+q", "quit",               "종료",      show=True,  priority=True),
-        Binding("escape", "focus_input",        "",          show=False),
+        Binding("escape", "escape_or_stop",        "",          show=False),
     ]
 
     def __init__(self) -> None:
@@ -274,6 +274,10 @@ class ZncApp(App):
         self._reset_process()
         self._update_header()
         self._update_temp_banner()
+        try:
+            self.query_one(InputBar).streaming = False
+        except Exception:
+            pass
 
     def _load_session(self, name: str, project: str | None) -> None:
         # 진행 중인 스트림 무효화
@@ -454,6 +458,7 @@ class ZncApp(App):
         mv = self.query_one(MessageView)
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
+        self.query_one(InputBar).streaming = True
         first_token = False
 
         def run_stream():
@@ -477,12 +482,14 @@ class ZncApp(App):
                         self._on_stream_done()
                     else:
                         self._streaming = False
+                        self.query_one(InputBar).streaming = False
                 self.call_from_thread(on_done)
 
         threading.Thread(target=run_stream, daemon=True).start()
 
     def _on_stream_done(self) -> None:
         self._streaming = False
+        self.query_one(InputBar).streaming = False
         content = self._stream_buffer
         self._stream_buffer = ""
         if self._session and content:
@@ -657,6 +664,7 @@ class ZncApp(App):
 
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
+        self.query_one(InputBar).streaming = True
         first_token = False
 
         def run_stream():
@@ -842,6 +850,32 @@ class ZncApp(App):
 
     def action_focus_input(self) -> None:
         self.query_one(InputBar).focus_input()
+
+    def action_escape_or_stop(self) -> None:
+        """스트리밍 중이면 중단, 아니면 입력창 포커스."""
+        if self._streaming:
+            self.action_stop_streaming()
+        else:
+            self.query_one(InputBar).focus_input()
+
+    def action_stop_streaming(self) -> None:
+        """진행 중인 스트리밍을 즉시 중단한다."""
+        if not self._streaming:
+            return
+        # _stream_id 증가 → 백그라운드 스레드가 스스로 중단
+        self._stream_id += 1
+        self._streaming = False
+        self._stream_buffer = ""
+        self._step(Stage.DONE)
+        mv = self.query_one(MessageView)
+        mv.end_streaming()
+        ib = self.query_one(InputBar)
+        ib.streaming = False
+        ib.focus_input()
+        self._write_status("중단됨", "yellow")
+
+    def on_input_bar_stop_requested(self, event: InputBar.StopRequested) -> None:
+        self.action_stop_streaming()
 
     def action_quit(self) -> None:
         # 임시 채팅이 아닌 경우 자동 저장

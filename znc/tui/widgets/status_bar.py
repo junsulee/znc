@@ -100,9 +100,13 @@ class StatusBar(Widget):
         t.append(" " * pad)
         t.append(elapsed, style="dim #484f58")
 
-        # 로그 토글 힌트
+        # 로그 토글 힌트 + 스트리밍 중이면 Esc 중단 힌트
         log_marker = "[dim][^L] log[/dim]" if not self._log_visible else "[dim #58a6ff][^L] log ▲[/]"
         t.append("  ")
         t.append_text(Text.from_markup(log_marker))
+
+        if stage in {Stage.THINKING, Stage.GENERATING, Stage.SEARCH, Stage.CRAWL}:
+            t.append("  ")
+            t.append_text(Text.from_markup("[bold #f85149][Esc] stop[/]"))
 
         return t

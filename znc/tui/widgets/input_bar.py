@@ -47,6 +47,7 @@ class ChatInput(TextArea):
         Binding("enter",       "submit_text",  priority=True, show=False),
         Binding("shift+enter", "newline_text", priority=True, show=False),
         Binding("ctrl+enter",  "newline_text", priority=True, show=False),
+        Binding("meta+enter",  "newline_text", priority=True, show=False),  # Alt+Enter
     ]
 
     DEFAULT_CSS = """
@@ -113,6 +114,7 @@ class InputBar(Widget):
                 show_line_numbers=False,
                 soft_wrap=True,
             )
+            yield Button("↵", id="newline-btn", classes="newline-btn")
             yield Button("▲", id="action-btn", classes="--send")
         yield ListView(id="autocomplete")
 
@@ -139,6 +141,11 @@ class InputBar(Widget):
 
     # ── 버튼 클릭 ─────────────────────────────────────────────
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "newline-btn":
+            ta = self.query_one("#input-field", ChatInput)
+            ta.insert("\n")
+            ta.focus()
+            return
         if event.button.id != "action-btn":
             return
         if self.streaming:

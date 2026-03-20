@@ -279,7 +279,23 @@ Screen {
     max-height: 7;
 }
 
-/* 전송/중단 버튼: 5자폭 × 1행 ≈ 터미널 정사각형 비율
+/* 줄바꿈 버튼 — Shift/Ctrl/Alt+Enter 안 되는 터미널용 fallback */
+.newline-btn {
+    width: 3;
+    min-width: 3;
+    height: 1;
+    margin: 0 0 0 1;
+    padding: 0 1;
+    background: $bg;
+    border: none;
+    color: $text-muted;
+}
+
+.newline-btn:hover {
+    color: $accent;
+    background: $bg-hover;
+    border: none;
+}
    모든 hover/상태에 border: none 명시 — 전역 Button:hover { border: tall } 오버라이드 */
 #action-btn {
     width: 5;
@@ -511,4 +527,11 @@ Button.--danger {
 #input-bar Button:focus-within {
     border: none;
     margin: 0;
+}
+
+/* ↵ 버튼은 action-btn 보다 좁게 */
+#input-bar .newline-btn,
+#input-bar .newline-btn:hover {
+    border: none;
+    margin: 0 0 0 1;
 }

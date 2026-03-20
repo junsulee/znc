@@ -66,6 +66,53 @@ _UNSAVED = "__unsaved__"
 _TEMP    = "__temp__"
 
 
+class BackgroundStream:
+    """세션에 연결된 백그라운드 스트림.
+
+    세션 전환 시 스트림을 중단하지 않고 백그라운드에서 계속 실행한다.
+    UI 가 연결(attach)된 동안에는 토큰이 MessageView 에 실시간 표시되고,
+    분리(detach)된 동안에는 버퍼에만 쌓인다.
+    세션에 돌아오면 버퍼를 재생(replay)하고 UI 를 재연결한다.
+
+    스레드 안전성:
+      buffer, ui_active 의 읽기/쓰기는 _lock 으로 보호한다.
+      call_from_thread 는 Textual 메인 스레드에서 UI 를 업데이트한다.
+    """
+
+    def __init__(self, session_key: str, ai_name: str) -> None:
+        self.session_key = session_key
+        self.ai_name = ai_name
+        self.buffer: str = ""          # 누적 토큰
+        self.completed: bool = False   # 스트림 완료
+        self.cancelled: bool = False   # 사용자가 중단
+        self.error: str | None = None
+        self._ui_active: bool = True   # UI 연결 여부
+        self._lock = threading.Lock()
+
+    # ── 외부 제어 ────────────────────────────────────────────
+    def attach_ui(self) -> None:
+        with self._lock:
+            self._ui_active = True
+
+    def detach_ui(self) -> None:
+        with self._lock:
+            self._ui_active = False
+
+    @property
+    def ui_active(self) -> bool:
+        with self._lock:
+            return self._ui_active
+
+    def get_buffer_snapshot(self) -> str:
+        with self._lock:
+            return self.buffer
+
+    def add_token(self, token: str) -> None:
+        """토큰 추가 — 버퍼에 쌓음. UI 업데이트는 호출자가 담당."""
+        with self._lock:
+            self.buffer += token
+
+
 class ZncApp(App):
     """znc TUI 메인 앱."""
 
@@ -100,7 +147,8 @@ class ZncApp(App):
         self._ai_name: str = self._settings.get("ai_name", "znc")
         self._streaming = False
         self._stream_buffer = ""
-        self._stream_id: int = 0   # 세션 전환 시 증가 → 구 스트림 콜백 무효화
+        self._stream_id: int = 0   # 수동 중단(Esc/Stop)에만 증가
+        self._bg_streams: dict[str, BackgroundStream] = {}  # 세션별 백그라운드 스트림
         self._ps = ProcessState()
         self._title_generated = False  # 현재 세션 제목 생성 완료 여부
 
@@ -245,6 +293,79 @@ class ZncApp(App):
             self._write_status(f"backend error: {e}", "red")
 
     # ------------------------------------------------------------------
+    # BackgroundStream 헬퍼
+    # ------------------------------------------------------------------
+    def _session_key(self, session) -> str:
+        return f"{session.project or ''}:{session.name}"
+
+    def _detach_current_stream(self) -> None:
+        """현재 세션의 스트림 UI를 분리한다 (스트림은 계속 실행)."""
+        if self._session:
+            key = self._session_key(self._session)
+            bg = self._bg_streams.get(key)
+            if bg and not bg.completed and not bg.cancelled:
+                bg.detach_ui()
+        # UI 레벨 정리
+        self._streaming = False
+        self._stream_buffer = ""
+        try:
+            self.query_one(InputBar).streaming = False
+            self.query_one(MessageView).end_streaming()
+        except Exception:
+            pass
+
+    def _reattach_stream(self, session) -> bool:
+        """세션에 활성 bg_stream 이 있으면 UI 를 재연결한다.
+        재연결 성공 시 True, 없으면 False 반환."""
+        key = self._session_key(session)
+        bg = self._bg_streams.get(key)
+        if not bg or bg.completed or bg.cancelled:
+            if bg:
+                self._bg_streams.pop(key, None)
+            return False
+
+        mv = self.query_one(MessageView)
+        mv.render_history(session.messages, self._ai_name)
+        mv.begin_assistant_turn(bg.ai_name)
+
+        # 누적 버퍼 즉시 재생
+        snapshot = bg.get_buffer_snapshot()
+        if snapshot:
+            mv.append_token(snapshot)
+
+        bg.attach_ui()
+        self._streaming = True
+        self.query_one(InputBar).streaming = True
+        self._step(Stage.GENERATING, "reconnecting stream...")
+        return True
+
+    def _on_bg_stream_done(self, bg: BackgroundStream, target_session) -> None:
+        """스트림 완료 콜백 — 메인 스레드에서 실행."""
+        content = bg.buffer
+        key = bg.session_key
+        self._bg_streams.pop(key, None)
+
+        # 내용 저장 (수동 중단 시에는 이미 저장됨)
+        if content and not bg.cancelled and target_session:
+            self._save_to_session(content, target_session)
+
+        # 현재 보고 있는 세션이면 UI 마무리
+        if self._session and self._session_key(self._session) == key:
+            self._streaming = False
+            try:
+                self.query_one(InputBar).streaming = False
+            except Exception:
+                pass
+            self._step(Stage.DONE)
+            try:
+                self.query_one(MessageView).end_streaming()
+                self.query_one(InputBar).focus_input()
+            except Exception:
+                pass
+            if not self._title_generated:
+                self._maybe_generate_title()
+
+    # ------------------------------------------------------------------
     # Session helpers
     # ------------------------------------------------------------------
     def _sessions_dir(self, project: str | None = None) -> str:
@@ -257,10 +378,8 @@ class ZncApp(App):
         return SESSIONS_DIR
 
     def _start_new_session(self, project: str | None = None, temp: bool = False) -> None:
-        # 진행 중인 스트림 무효화 — 임시 세션 등에서 전환 시 내용 누수 방지
-        self._stream_id += 1
-        self._streaming = False
-        self._stream_buffer = ""
+        # 현재 스트림 UI만 분리 (스트림은 백그라운드 계속)
+        self._detach_current_stream()
 
         system = None
         if project:
@@ -274,7 +393,6 @@ class ZncApp(App):
         )
         self._title_generated = False
         mv = self.query_one(MessageView)
-        mv.end_streaming()
         mv.clear()
         self._reset_process()
         self._update_header()
@@ -285,17 +403,19 @@ class ZncApp(App):
             pass
 
     def _load_session(self, name: str, project: str | None) -> None:
-        # 진행 중인 스트림 무효화
-        self._stream_id += 1
-        self._streaming = False
-        self._stream_buffer = ""
+        # 현재 스트림 UI만 분리 (스트림은 백그라운드 계속)
+        self._detach_current_stream()
 
         try:
             self._session = Session.load(self._sessions_dir(project), name)
             self._title_generated = bool(self._session.title)
-            mv = self.query_one(MessageView)
-            mv.end_streaming()
-            mv.render_history(self._session.messages, self._ai_name)
+
+            # 이 세션에 활성 백그라운드 스트림이 있으면 UI 재연결
+            if not self._reattach_stream(self._session):
+                # 스트림 없음 — 일반 히스토리 렌더링
+                mv = self.query_one(MessageView)
+                mv.render_history(self._session.messages, self._ai_name)
+
             self._reset_process()
             self._update_header()
             self._update_temp_banner()
@@ -456,10 +576,16 @@ class ZncApp(App):
         self._stream_buffer = ""
         self._streaming = True
 
-        # 이 스트림의 고유 ID — 세션 전환 시 _stream_id 가 증가하면 콜백 무시
+        # 이 스트림의 고유 ID — 수동 중단(Esc/Stop)에만 사용
         self._stream_id += 1
         my_stream_id = self._stream_id
-        target_session = self._session  # 스트림이 속한 원본 세션 참조 캡처
+        target_session = self._session
+
+        # BackgroundStream 생성 및 등록
+        key = self._session_key(target_session)
+        bg = BackgroundStream(key, self._ai_name)
+        bg.attach_ui()
+        self._bg_streams[key] = bg
 
         mv = self.query_one(MessageView)
         self._step(Stage.THINKING, "waiting for first token")
@@ -471,45 +597,24 @@ class ZncApp(App):
             nonlocal first_token
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
-                    if self._stream_id != my_stream_id:
-                        return  # 세션이 전환됨 — UI 업데이트 중단
+                    if self._stream_id != my_stream_id or bg.cancelled:
+                        break  # 수동 중단
+                    bg.add_token(token)
                     if not first_token:
                         first_token = True
                         self._step_from_thread(Stage.GENERATING)
-                    self._stream_buffer += token
-                    self.call_from_thread(mv.append_token, token)
+                    if bg.ui_active:
+                        self.call_from_thread(mv.append_token, token)
             except Exception as e:
-                if self._stream_id == my_stream_id:
+                bg.error = str(e)
+                if bg.ui_active:
                     self._step_from_thread(Stage.ERROR, str(e))
                     self.call_from_thread(self._write_status, f"stream error: {e}", "red")
             finally:
-                def on_done():
-                    if self._stream_id == my_stream_id:
-                        self._on_stream_done()
-                    else:
-                        # 세션 전환으로 중단됨 — 쌓인 내용을 원본 세션에 저장
-                        self._streaming = False
-                        self.query_one(InputBar).streaming = False
-                        partial = self._stream_buffer
-                        self._stream_buffer = ""
-                        if partial and target_session:
-                            self._save_to_session(partial, target_session)
-                self.call_from_thread(on_done)
+                bg.completed = True
+                self.call_from_thread(self._on_bg_stream_done, bg, target_session)
 
         threading.Thread(target=run_stream, daemon=True).start()
-
-    def _on_stream_done(self) -> None:
-        self._streaming = False
-        self.query_one(InputBar).streaming = False
-        content = self._stream_buffer
-        self._stream_buffer = ""
-        if self._session and content:
-            self._save_to_session(content, self._session)
-            if not self._title_generated:
-                self._maybe_generate_title()
-        self._step(Stage.DONE)
-        self.query_one(MessageView).end_streaming()
-        self.query_one(InputBar).focus_input()
 
     def _save_to_session(self, content: str, session) -> None:
         """AI 응답을 지정 세션에 저장하고 부가 처리를 수행한다.
@@ -685,10 +790,42 @@ class ZncApp(App):
         self._streaming = True
         self._stream_id += 1
         my_stream_id = self._stream_id
-        target_session = self._session  # 원본 세션 참조 캡처
+        target_session = self._session
+
+        key = self._session_key(target_session)
+        bg = BackgroundStream(key, self._ai_name)
+        bg.attach_ui()
+        self._bg_streams[key] = bg
+
         prompt = self._build_prompt() + f"\n[context]\n{text}\n{self._ai_name}:"
         system = self._build_system()
         mv = self.query_one(MessageView)
+
+        self._step(Stage.THINKING, "waiting for first token")
+        mv.begin_assistant_turn(self._ai_name)
+        self.query_one(InputBar).streaming = True
+        first_token = False
+
+        def run_stream():
+            nonlocal first_token
+            try:
+                for token in self._backend.stream(prompt, system_prompt=system):
+                    if self._stream_id != my_stream_id or bg.cancelled:
+                        break
+                    bg.add_token(token)
+                    if not first_token:
+                        first_token = True
+                        self._step_from_thread(Stage.GENERATING)
+                    if bg.ui_active:
+                        self.call_from_thread(mv.append_token, token)
+            except Exception as e:
+                bg.error = str(e)
+                if bg.ui_active:
+                    self._step_from_thread(Stage.ERROR, str(e))
+                    self.call_from_thread(self._write_status, f"error: {e}", "red")
+            finally:
+                bg.completed = True
+                self.call_from_thread(self._on_bg_stream_done, bg, target_session)
 
         self._step(Stage.THINKING, "waiting for first token")
         mv.begin_assistant_turn(self._ai_name)
@@ -973,7 +1110,18 @@ class ZncApp(App):
         """진행 중인 스트리밍을 즉시 중단한다."""
         if not self._streaming:
             return
-        # _stream_id 증가 → 백그라운드 스레드가 스스로 중단
+
+        # bg_stream 취소 표시 + 즉시 부분 저장
+        if self._session:
+            key = self._session_key(self._session)
+            bg = self._bg_streams.get(key)
+            if bg:
+                bg.cancelled = True
+                partial = bg.get_buffer_snapshot()
+                if partial:
+                    self._save_to_session(partial, self._session)
+
+        # 스트림 스레드에 중단 신호
         self._stream_id += 1
         self._streaming = False
         self._stream_buffer = ""
@@ -983,7 +1131,8 @@ class ZncApp(App):
         ib = self.query_one(InputBar)
         ib.streaming = False
         ib.focus_input()
-        self._write_status("중단됨", "yellow")
+        lang = self._settings.get("lang", "ko")
+        self._write_status(_ui(lang, "stopped"), "yellow")
 
     def on_input_bar_stop_requested(self, event: InputBar.StopRequested) -> None:
         self.action_stop_streaming()

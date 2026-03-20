@@ -140,6 +140,18 @@ Screen {
     color: #6e4c00;
 }
 
+/* 다중 줄 입력 힌트 — Ctrl+Enter 로 줄바꿈 가능 알림 */
+#input-bar-hint {
+    height: 1;
+    color: $text-muted;
+    padding: 0 1;
+    text-align: right;
+    display: none;
+}
+#input-bar:focus-within #input-bar-hint {
+    display: block;
+}
+
 /* ── 메인 채팅 영역 ───────────────────────────────── */
 #chat-pane {
     width: 1fr;
@@ -237,7 +249,9 @@ Screen {
 
 /* ── 입력창 ──────────────────────────────────────── */
 #input-bar {
-    height: 3;
+    height: auto;
+    min-height: 3;
+    max-height: 9;
     border: tall $border;
     background: $bg-panel;
     padding: 0 1;
@@ -250,18 +264,19 @@ Screen {
 }
 
 #input-row {
-    height: 1fr;
-    align: left middle;
+    height: auto;
+    align: left top;
 }
 
-/* border 없음 — input-bar 박스가 프레임 역할 */
+/* ChatInput(TextArea): border 없음 — input-bar 박스가 프레임 */
 #input-field {
     width: 1fr;
     background: $bg;
     border: none;
     color: $text;
-    height: 1fr;
     padding: 0 1;
+    height: auto;
+    max-height: 7;
 }
 
 /* 전송/중단 버튼: 5자폭 × 1행 ≈ 터미널 정사각형 비율
@@ -269,7 +284,7 @@ Screen {
 #action-btn {
     width: 5;
     min-width: 5;
-    height: 1fr;
+    height: 1;
     margin: 0 0 0 1;
     padding: 0 2;
     background: $bg-active;

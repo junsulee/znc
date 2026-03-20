@@ -43,11 +43,11 @@ Screen {
 }
 
 #sidebar-title {
-    /* znc 로고타입: 배경 강조 + bold accent 색으로 미니멀 로고 느낌 */
+    /* znc 로고타입: 노란색 bold, 왼쪽 여백 없음 */
     background: $bg-active;
-    color: $accent;
+    color: $warning;
     text-style: bold;
-    padding: 0 2;
+    padding: 0 1 0 0;
     height: 1;
 }
 

@@ -28,8 +28,8 @@ from textual.widgets import RichLog, Static
 
 from znc.core.models import Message
 
-# 고전적 TUI ASCII 스피너 (이모지 없음)
-_THINK_FRAMES = ["|", "/", "-", "\\"]
+# 브레일 스피너 — 터미널에서 가장 부드럽게 보이는 TUI 표준 패턴
+_THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 class MessageView(Widget):

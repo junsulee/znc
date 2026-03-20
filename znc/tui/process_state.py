@@ -1,13 +1,13 @@
 """
 ProcessState — 단계 정의 및 상태 관리 모델.
-app.py 와 위젯 양쪽에서 공유하기 위해 별도 모듈로 분리.
+
+StepRecord 에 sub_items 를 추가해 Cursor 스타일의 세부 정보 표시를 지원.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 from time import monotonic
-from typing import Optional
 
 
 class Stage(str, Enum):
@@ -22,7 +22,6 @@ class Stage(str, Enum):
     ERROR      = "error"
 
 
-# 각 단계에 표시할 레이블
 STAGE_LABEL: dict[Stage, str] = {
     Stage.IDLE:       "",
     Stage.LOADING:    "preparing",
@@ -35,7 +34,6 @@ STAGE_LABEL: dict[Stage, str] = {
     Stage.ERROR:      "error",
 }
 
-# 단계별 색상 (Rich style)
 STAGE_STYLE: dict[Stage, str] = {
     Stage.IDLE:       "dim",
     Stage.LOADING:    "#8b949e",
@@ -54,7 +52,13 @@ class StepRecord:
     """ProcessLog 에 기록될 단일 단계 로그 항목."""
     stage: Stage
     detail: str = ""
-    elapsed: float = 0.0     # 이 단계가 시작된 시점의 전체 경과 시간
+    elapsed: float = 0.0
+    sub_items: list[str] = field(default_factory=list)   # Cursor 스타일 세부 항목
+
+    def add_sub(self, item: str) -> None:
+        """세부 항목 추가 (최대 8개)."""
+        if len(self.sub_items) < 8:
+            self.sub_items.append(item)
 
 
 @dataclass
@@ -75,6 +79,17 @@ class ProcessState:
         self.detail = detail
         self._stage_start = now
         return record
+
+    def add_sub_to_last(self, item: str) -> None:
+        """마지막 StepRecord 에 세부 항목을 추가."""
+        if self.steps:
+            self.steps[-1].add_sub(item)
+
+    def update_last_detail(self, detail: str) -> None:
+        """마지막 StepRecord 의 detail 을 갱신."""
+        if self.steps:
+            self.steps[-1].detail = detail
+        self.detail = detail
 
     @property
     def total_elapsed(self) -> float:

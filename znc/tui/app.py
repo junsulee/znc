@@ -188,6 +188,19 @@ class ZncApp(App):
     def _step_from_thread(self, stage: Stage, detail: str = "") -> None:
         self.call_from_thread(self._step, stage, detail)
 
+    def _add_sub(self, item: str) -> None:
+        """현재 단계에 세부 항목 추가 (메인 스레드)."""
+        self._ps.add_sub_to_last(item)
+        self.query_one(ProcessLog).refresh_last_step()
+
+    def _add_sub_from_thread(self, item: str) -> None:
+        self.call_from_thread(self._add_sub, item)
+
+    def _update_detail(self, detail: str) -> None:
+        """현재 단계 detail 갱신."""
+        self._ps.update_last_detail(detail)
+        self.query_one(StatusBar).refresh()
+
     def _reset_process(self) -> None:
         self._ps.reset()
         self.query_one(StatusBar).refresh()
@@ -340,8 +353,11 @@ class ZncApp(App):
         self._step(Stage.GENERATING, "reconnecting stream...")
         return True
 
-    def _on_bg_stream_done(self, bg: BackgroundStream, target_session) -> None:
-        """스트림 완료 콜백 — 메인 스레드에서 실행."""
+    def _on_bg_stream_done(self, bg, target_session) -> None:
+        self._on_bg_stream_done_with_tokens(bg, target_session, 0)
+
+    def _on_bg_stream_done_with_tokens(self, bg, target_session, token_count: int) -> None:
+        """스트림 완료 콜백 — 토큰 수 포함."""
         content = bg.buffer
         key = bg.session_key
         self._bg_streams.pop(key, None)
@@ -357,7 +373,11 @@ class ZncApp(App):
                 self.query_one(InputBar).streaming = False
             except Exception:
                 pass
+            # Done 단계 + sub_item 에 요약 정보
+            elapsed = self._ps.total_elapsed
             self._step(Stage.DONE)
+            if token_count:
+                self._add_sub(f"{token_count} tokens  ·  {elapsed:.1f}s  ·  {token_count/elapsed:.0f} t/s")
             try:
                 self.query_one(MessageView).end_streaming()
                 self.query_one(InputBar).focus_input()
@@ -571,6 +591,10 @@ class ZncApp(App):
         mem_items = load_all_memory()
         if mem_items:
             self._step(Stage.MEMORY, f"{len(mem_items)} items")
+            for m in mem_items[:5]:   # 최대 5개 표시
+                self._add_sub(f"{m.key}: {m.value}")
+            if len(mem_items) > 5:
+                self._add_sub(f"... +{len(mem_items)-5} more")
 
         prompt = self._build_prompt()
         system = self._build_system()
@@ -593,19 +617,26 @@ class ZncApp(App):
         mv.begin_assistant_turn(self._ai_name)
         self.query_one(InputBar).streaming = True
         first_token = False
+        token_count = 0
 
         def run_stream():
-            nonlocal first_token
+            nonlocal first_token, token_count
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
                     if self._stream_id != my_stream_id or bg.cancelled:
-                        break  # 수동 중단
+                        break
                     bg.add_token(token)
+                    token_count += 1
                     if not first_token:
                         first_token = True
                         self._step_from_thread(Stage.GENERATING)
                     if bg.ui_active:
                         self.call_from_thread(mv.append_token, token)
+                    # 50토큰마다 생성 진행 상태 갱신
+                    if token_count % 50 == 0 and bg.ui_active:
+                        self.call_from_thread(
+                            self._update_detail, f"{token_count} tokens"
+                        )
             except Exception as e:
                 bg.error = str(e)
                 if bg.ui_active:
@@ -613,7 +644,9 @@ class ZncApp(App):
                     self.call_from_thread(self._write_status, f"stream error: {e}", "red")
             finally:
                 bg.completed = True
-                self.call_from_thread(self._on_bg_stream_done, bg, target_session)
+                self.call_from_thread(
+                    self._on_bg_stream_done_with_tokens, bg, target_session, token_count
+                )
 
         threading.Thread(target=run_stream, daemon=True).start()
 
@@ -751,7 +784,6 @@ class ZncApp(App):
                 if url:
                     domain = url.split("/")[2] if url.count("/") >= 2 else url
                     self._step_from_thread(Stage.CRAWL, domain)
-
             results, context = search_and_crawl(
                 query,
                 engines=engines,
@@ -764,7 +796,10 @@ class ZncApp(App):
                 self.call_from_thread(self._write_status, "no results found", "red")
                 return
             if self._session:
-                # 검색 날짜를 컨텍스트 앞에 삽입해 LLM 이 언제 검색된 정보인지 인식하게 함
+                # 검색 결과 제목을 SEARCH 단계 sub_item 으로 추가
+                for r in results[:5]:
+                    title_short = r.title[:55] if r.title else r.url[:55]
+                    self.call_from_thread(self._add_sub, f"{title_short}")
                 dated_context = f"[검색 날짜: {search_date}]\n{context}"
                 prompt = (
                     f"[web search context]\n{dated_context}\n\n"

@@ -85,7 +85,7 @@ class AboutScreen(ModalScreen):
             yield Label("─" * 46, classes="ab-sep")
 
             yield Label(
-                "F1 커맨드 팔레트  |  github.com/junsulee/znc",
+                "F1 커맨드 팔레트  |  Ctrl+G About  |  github.com/junsulee/znc",
                 classes="ab-label",
             )
 

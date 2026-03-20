@@ -88,12 +88,6 @@ class Sidebar(Widget):
         yield Static("SESSIONS", classes="section-label")
         yield Input(placeholder="filter...", id="session-search")
         yield ListView(id="session-list")
-        # [[ ]] 은 Rich 마크업에서 리터럴 [ ] 를 출력하는 이스케이프
-        yield Static(
-            "[[n]]ew  [[t]]emp  [[p]]roj  "
-            "[[/]]search  [[d]]el  [[r]]ename",
-            id="sidebar-footer",
-        )
 
     def on_mount(self) -> None:
         self.query_one("#session-search").display = False

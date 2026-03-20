@@ -122,6 +122,9 @@ class ZncApp(App):
         self._reload_backend()
         self._update_header()
         self._update_keybind_bar()
+        # 저장된 테마 적용
+        theme = self._settings.get("theme", "dark")
+        self.dark = (theme == "dark")
         self.query_one(InputBar).focus_input()
 
     # ------------------------------------------------------------------
@@ -818,6 +821,7 @@ class ZncApp(App):
         self.push_screen(RenameSessionScreen(event.name), _do)
 
     def on_sidebar_session_delete_requested(
+        self, event: Sidebar.SessionDeleteRequested,
     ) -> None:
         def _do_delete(confirmed: bool) -> None:
             if not confirmed:
@@ -869,6 +873,15 @@ class ZncApp(App):
                 self._settings = cfg
                 self._reload_backend()
                 self._update_header()
+                # 언어 변경 → 사이드바 레이블 갱신
+                new_lang = cfg.get("lang", "ko")
+                try:
+                    self.query_one(Sidebar).set_lang(new_lang)
+                except Exception:
+                    pass
+                # 테마 변경
+                theme = cfg.get("theme", "dark")
+                self.dark = (theme == "dark")
         self.push_screen(SettingsScreen(), callback)
 
     def action_open_persona(self) -> None:

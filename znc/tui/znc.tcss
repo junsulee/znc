@@ -43,10 +43,11 @@ Screen {
 }
 
 #sidebar-title {
-    background: $bg-panel;
+    /* znc 로고타입: 배경 강조 + bold accent 색으로 미니멀 로고 느낌 */
+    background: $bg-active;
     color: $accent;
     text-style: bold;
-    padding: 0 1;
+    padding: 0 2;
     height: 1;
 }
 
@@ -174,16 +175,12 @@ Screen {
     color: $text-muted;
 }
 
+/* ProcessLog: height 0↔7 슬라이드 애니메이션 */
 #process-log {
     background: $bg;
     border-top: tall $bg-active;
-    border-bottom: tall $bg-active;
-    display: none;
-}
-
-#process-log.--visible {
-    display: block;
-    height: 8;
+    overflow-y: hidden;
+    transition: height 200ms ease-in-out;
 }
 
 #proc-log {

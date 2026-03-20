@@ -2,19 +2,17 @@
 StatusBar — 레이어1.
 
 채팅창 하단, 입력창 위에 고정된 1줄짜리 상태 바.
-현재 단계 + 경과 시간 + 스피너 애니메이션을 표시한다.
-idle 상태에서는 완전히 비워진다.
 
-레이아웃:
-  [단계]  detail text                     0.0s  [L] log
-          ↑ STAGE_STYLE 색상              ↑ dim  ↑ 토글 힌트
+레이아웃 (활성 시):
+  ⠸  thinking  detail...   prep → mem → thinking    2.1s  [^L]▼  [Esc] stop
+  ^   ^         ^           ^ 최근 3단계 브레드크럼  ^              ^
+  스피너        현재단계     (LogPanel 접힘 시만 표시)
+
+LogPanel 펼침 시 브레드크럼 숨김 (이미 상세 로그가 보이므로).
 """
 from __future__ import annotations
 
-from time import monotonic
-
 from rich.text import Text
-from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widget import Widget
 
@@ -24,6 +22,17 @@ _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 _ACTIVE_STAGES = {
     Stage.LOADING, Stage.MEMORY, Stage.SEARCH,
     Stage.CRAWL, Stage.THINKING, Stage.GENERATING,
+}
+# 브레드크럼에 표시할 축약 레이블
+_CRUMB_LABEL: dict[Stage, str] = {
+    Stage.LOADING:    "prep",
+    Stage.MEMORY:     "mem",
+    Stage.SEARCH:     "search",
+    Stage.CRAWL:      "crawl",
+    Stage.THINKING:   "think",
+    Stage.GENERATING: "gen",
+    Stage.DONE:       "done",
+    Stage.ERROR:      "err",
 }
 
 
@@ -55,7 +64,6 @@ class StatusBar(Widget):
         self._tick = (self._tick + 1) % len(_SPINNER)
         self.refresh()
 
-    # 외부에서 호출
     def set_state(self, process_state: ProcessState) -> None:
         self._ps = process_state
         self.refresh()
@@ -68,13 +76,12 @@ class StatusBar(Widget):
         ps = self._ps
         stage = ps.stage
         log_marker = (
-            "[dim][^L] log[/dim]"
+            "[dim #484f58][^L]▼[/]"
             if not self._log_visible
-            else "[dim #58a6ff][^L] log ▲[/]"
+            else "[#58a6ff][^L]▲[/]"
         )
 
         if stage == Stage.IDLE:
-            # 비어 보이지 않도록 힌트 항상 표시
             t = Text()
             t.append_text(Text.from_markup(log_marker))
             return t
@@ -85,35 +92,49 @@ class StatusBar(Widget):
 
         t = Text()
 
-        # 스피너 (활성 단계에만)
+        # 스피너
         if active:
             t.append(_SPINNER[self._tick] + "  ", style=style)
         else:
             t.append("   ")
 
-        # 단계 레이블
+        # 현재 단계
         t.append(f"{label}", style=f"bold {style}")
 
         # 세부 내용
         if ps.detail:
-            detail = ps.detail
-            # 너비에 맞게 자르기 (대략 터미널 폭 - 20 정도)
-            if len(detail) > 60:
-                detail = detail[:57] + "..."
+            detail = ps.detail[:55] + "..." if len(ps.detail) > 55 else ps.detail
             t.append(f"  {detail}", style="#484f58")
 
-        # 경과 시간 (오른쪽 정렬 흉내 — 패딩으로 밀기)
+        # 브레드크럼: 로그 접힌 상태에서만 최근 단계 요약 표시
+        if not self._log_visible and ps.steps:
+            crumbs = [
+                _CRUMB_LABEL.get(s.stage, "")
+                for s in ps.steps
+                if s.stage not in {Stage.IDLE} and _CRUMB_LABEL.get(s.stage)
+            ]
+            # 중복 제거 (연속 동일 단계)
+            deduped = []
+            for c in crumbs:
+                if not deduped or deduped[-1] != c:
+                    deduped.append(c)
+            if deduped:
+                crumb_str = " → ".join(deduped[-4:])   # 최대 4단계
+                t.append(f"   {crumb_str}", style="dim #30363d")
+
+        # 경과 시간
         elapsed = f"{ps.total_elapsed:.1f}s"
-        pad = max(1, 72 - len(t.plain) - len(elapsed))
+        pad = max(1, 74 - len(t.plain) - len(elapsed))
         t.append(" " * pad)
         t.append(elapsed, style="dim #484f58")
 
-        # 로그 토글 힌트 + 스트리밍 중이면 Esc 중단 힌트
+        # 로그 토글 힌트
         t.append("  ")
         t.append_text(Text.from_markup(log_marker))
 
+        # 스트리밍 중 중단 힌트
         if stage in {Stage.THINKING, Stage.GENERATING, Stage.SEARCH, Stage.CRAWL}:
             t.append("  ")
-            t.append_text(Text.from_markup("[bold #f85149][Esc] stop[/]"))
+            t.append_text(Text.from_markup("[bold #f85149][Esc]stop[/]"))
 
         return t

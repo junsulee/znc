@@ -762,8 +762,53 @@ class ZncApp(App):
     def on_sidebar_new_project_requested(self, event: Sidebar.NewProjectRequested) -> None:
         self.action_new_project()
 
+    def on_sidebar_project_delete_requested(
+        self, event: Sidebar.ProjectDeleteRequested
+    ) -> None:
+        def _do(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            from znc.core.repository import ProjectRepository
+            ProjectRepository.delete(event.name)
+            if self._session and self._session.project == event.name:
+                self._session = None
+                self.query_one(MessageView).clear()
+                self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+        self.push_screen(
+            ConfirmScreen(f"'{event.name}' 프로젝트와 모든 세션을 삭제하시겠습니까?", "프로젝트 삭제"),
+            _do,
+        )
+
+    def on_sidebar_project_rename_requested(
+        self, event: Sidebar.ProjectRenameRequested
+    ) -> None:
+        def _do(new_name: str | None) -> None:
+            if not new_name:
+                return
+            import os, json, shutil
+            from znc.core.config import get_project_dir
+            old_dir = get_project_dir(event.name)
+            new_dir = get_project_dir(new_name)
+            if os.path.exists(new_dir):
+                self._write_status(f"already exists: {new_name}", "red")
+                return
+            os.rename(old_dir, new_dir)
+            # project.json 내 name 필드 갱신
+            meta = os.path.join(new_dir, "project.json")
+            if os.path.exists(meta):
+                with open(meta, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                d["name"] = new_name
+                with open(meta, "w", encoding="utf-8") as f:
+                    json.dump(d, f, indent=2, ensure_ascii=False)
+            if self._session and self._session.project == event.name:
+                self._session.project = new_name
+                self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+        self.push_screen(RenameSessionScreen(event.name), _do)
+
     def on_sidebar_session_delete_requested(
-        self, event: Sidebar.SessionDeleteRequested
     ) -> None:
         def _do_delete(confirmed: bool) -> None:
             if not confirmed:

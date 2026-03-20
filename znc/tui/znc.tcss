@@ -126,21 +126,17 @@ Screen {
     display: block;
 }
 
-/* 임시 채팅 시 입력창 테두리를 amber 로 */
+/* 임시 채팅 시 입력창 박스를 amber 색으로 */
 #chat-pane.--temp #input-bar {
-    border-top: tall #6e4c00;
-}
-
-#chat-pane.--temp #input-field {
     border: tall #6e4c00;
 }
 
-#chat-pane.--temp #input-field:focus {
+#chat-pane.--temp #input-bar:focus-within {
     border: tall $warning;
 }
 
 #chat-pane.--temp #action-btn.--send {
-    border: tall #6e4c00;
+    color: #6e4c00;
 }
 
 /* ── 메인 채팅 영역 ───────────────────────────────── */
@@ -245,9 +241,14 @@ Screen {
 /* ── 입력창 ──────────────────────────────────────── */
 #input-bar {
     height: 3;
-    border-top: tall $border;
+    border: tall $border;
     background: $bg-panel;
     padding: 0 1;
+}
+
+/* 입력창에 포커스가 들어오면 외곽 박스 강조 */
+#input-bar:focus-within {
+    border: tall $accent;
 }
 
 #input-row {
@@ -255,35 +256,35 @@ Screen {
     align: left middle;
 }
 
+/* border 없음 — input-bar 박스가 프레임 역할 */
 #input-field {
     width: 1fr;
     background: $bg;
-    border: tall $border;
+    border: none;
     color: $text;
-}
-
-#input-field:focus {
-    border: tall $accent;
-}
-
-#action-btn {
-    width: 5;
-    min-width: 5;
     height: 1fr;
-    margin-left: 1;
+    padding: 0 1;
+}
+
+/* 전역 Button 규칙이 action-btn 에 적용되지 않도록 명시적 오버라이드 */
+#action-btn {
+    width: 3;
+    min-width: 3;
+    height: 1fr;
+    margin: 0 0 0 1;
+    padding: 0 1;
     background: $bg-active;
-    border: tall $border;
+    border: none;
     color: $text-muted;
 }
 
 #action-btn.--send:hover {
-    border: tall $accent;
     color: $accent;
+    background: $bg-hover;
 }
 
 #action-btn.--stop {
     background: #2d1a1a;
-    border: tall #f85149;
     color: #f85149;
     text-style: bold;
 }

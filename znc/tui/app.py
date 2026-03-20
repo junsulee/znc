@@ -227,8 +227,11 @@ class ZncApp(App):
             f"[{K}]Esc[/][{D}]Close[/]"
         )
 
+        from znc.version import VERSION, BUILD
+        ver_str = f"[dim #484f58]znc v{VERSION} #{BUILD}[/]"
+
         self.query_one("#keybind-bar", Static).update(
-            f"{row1}\n{row2}"
+            f"{row1}  {ver_str}\n{row2}"
         )
 
     # ------------------------------------------------------------------

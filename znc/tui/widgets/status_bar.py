@@ -1,15 +1,13 @@
 """
-StatusBar — 스피너 + 단계 레이블 + shimmer 상태 바.
+StatusBar — Static 직접 상속으로 단순화.
 
-render() 직접 오버라이드 대신 내부 Static 위젯에 update() 를 사용.
-Textual 0.80+ 에서 render() 직접 오버라이드는 렌더링이 불안정함.
+Static.update(Text) 로 업데이트하는 가장 단순하고 안정적인 방식.
+render() 오버라이드나 자식 위젯 불필요.
 """
 from __future__ import annotations
 
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.timer import Timer
-from textual.widget import Widget
 from textual.widgets import Static
 
 from znc.tui.animation import shimmer, SHIMMER_STAGES
@@ -60,8 +58,13 @@ _CRUMB_LABEL: dict[str, dict[Stage, str]] = {
 }
 
 
-class StatusBar(Widget):
-    """1줄 상태 바 — 내부 Static 위젯 update() 방식."""
+class StatusBar(Static):
+    """
+    1줄 상태 바.
+
+    Static 을 직접 상속해 self.update(Text) 로 갱신.
+    render() 오버라이드나 자식 위젯 없이 가장 단순하게 구현.
+    """
 
     DEFAULT_CSS = """
     StatusBar {
@@ -71,23 +74,15 @@ class StatusBar(Widget):
         padding: 0 1;
         color: #8b949e;
     }
-    #_sb_content {
-        height: 1fr;
-        background: #0d1117;
-        color: #8b949e;
-    }
     """
 
     def __init__(self, process_state: ProcessState) -> None:
-        super().__init__(id="status-bar")
+        super().__init__("", id="status-bar", markup=False)
         self._ps = process_state
         self._timer: Timer | None = None
         self._log_visible = False
         self._lang: str = "ko"
         self._tick: int = 0
-
-    def compose(self) -> ComposeResult:
-        yield Static("", id="_sb_content", markup=False)
 
     def on_mount(self) -> None:
         try:
@@ -96,46 +91,41 @@ class StatusBar(Widget):
         except Exception:
             pass
         self._timer = self.set_interval(0.1, self._on_tick)
+        self._push()
 
     def _on_tick(self) -> None:
         self._tick = (self._tick + 1) % len(_SPINNER)
-        self._refresh_content()
+        self._push()
+
+    def _push(self) -> None:
+        """현재 상태를 Static 에 업데이트."""
+        self.update(self._build_text())
 
     # ── 외부 API ───────────────────────────────────────────────
     def set_state(self, process_state: ProcessState) -> None:
         self._ps = process_state
-        self._refresh_content()
+        self._push()
 
     def set_log_visible(self, visible: bool) -> None:
         self._log_visible = visible
-        self._refresh_content()
+        self._push()
 
     def set_lang(self, lang: str) -> None:
         self._lang = lang
-        self._refresh_content()
+        self._push()
 
-    def refresh(self, *args, **kwargs):
-        self._refresh_content()
-        return super().refresh(*args, **kwargs)
-
-    # ── 내부 ──────────────────────────────────────────────────
-    def _refresh_content(self) -> None:
-        try:
-            content = self._build_text()
-            self.query_one("#_sb_content", Static).update(content)
-        except Exception:
-            pass
-
+    # ── 텍스트 빌드 ────────────────────────────────────────────
     def _build_text(self) -> Text:
         ps = self._ps
         stage = ps.stage
         lang = self._lang
 
         log_label = "[^L]▼" if not self._log_visible else "[^L]▲"
+        log_style = "dim #484f58" if not self._log_visible else "#58a6ff"
 
         if stage == Stage.IDLE:
             t = Text()
-            t.append(log_label, style="dim #484f58")
+            t.append(log_label, style=log_style)
             return t
 
         label = _STAGE_LABEL.get(lang, _STAGE_LABEL["en"]).get(stage, stage.value)
@@ -150,7 +140,7 @@ class StatusBar(Widget):
         else:
             t.append("   ")
 
-        # 단계 레이블 — 활성 단계는 shimmer, 완료/오류는 bold
+        # 단계 레이블 — shimmer 또는 bold
         if label:
             if stage in SHIMMER_STAGES:
                 t.append_text(shimmer(label, self._tick, style))
@@ -177,14 +167,14 @@ class StatusBar(Widget):
             if deduped:
                 t.append(f"   {' → '.join(deduped[-4:])}", style="dim #484f58")
 
-        # 경과 시간
+        # 경과 시간 (오른쪽 정렬)
         elapsed = f"{ps.total_elapsed:.1f}s"
         pad = max(1, 72 - len(t.plain) - len(elapsed))
         t.append(" " * pad)
         t.append(elapsed, style="dim #484f58")
 
         # 로그 토글 힌트
-        t.append(f"  {log_label}", style="dim #484f58" if not self._log_visible else "#58a6ff")
+        t.append(f"  {log_label}", style=log_style)
 
         # 스트리밍 중 중단 힌트
         if stage in {Stage.THINKING, Stage.GENERATING, Stage.SEARCH, Stage.CRAWL}:

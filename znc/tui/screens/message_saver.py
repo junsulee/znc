@@ -55,15 +55,13 @@ class MessageSaverScreen(ModalScreen):
         border: tall #30363d;
         padding: 0;
         width: 70;
-        height: auto;
-        max-height: 40;
+        height: 36;
     }
 
-    /* 스크롤 가능한 콘텐츠 영역 */
+    /* 스크롤 가능한 콘텐츠 영역: 1fr → 푸터(3) 제외 나머지 채움 */
     #saver-scroll {
         padding: 1 2;
-        height: auto;
-        max-height: 28;
+        height: 1fr;
         overflow-y: auto;
         background: #161b22;
     }

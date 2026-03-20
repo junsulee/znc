@@ -885,7 +885,9 @@ class ZncApp(App):
         if not self._session or not self._session.messages:
             self._write_status("no messages to save", "yellow")
             return
-        save_dir = self._sessions_dir()
+        from znc.core.config import ZNC_DIR
+        save_dir = os.path.join(ZNC_DIR, "output")
+        os.makedirs(save_dir, exist_ok=True)
 
         def callback(filepath: str | None) -> None:
             if filepath:

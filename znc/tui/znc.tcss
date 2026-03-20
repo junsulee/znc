@@ -33,6 +33,10 @@ Screen {
     padding: 0;
 }
 
+#sidebar.--hidden {
+    display: none;
+}
+
 #sidebar-title {
     background: $bg-panel;
     color: $accent;

@@ -79,6 +79,7 @@ class ZncApp(App):
         Binding("ctrl+s", "open_settings",      "설정",      show=True,  priority=True),
         Binding("ctrl+p", "open_persona",       "persona",   show=True,  priority=True),
         Binding("ctrl+e", "open_memory",        "memory",    show=True,  priority=True),
+        Binding("ctrl+b", "toggle_sidebar",     "사이드바",  show=True,  priority=True),
         Binding("ctrl+l", "toggle_log",         "log",       show=True,  priority=True),
         Binding("ctrl+i", "open_about",         "about",     show=True,  priority=True),
         Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
@@ -167,6 +168,7 @@ class ZncApp(App):
         self.query_one("#keybind-bar", Static).update(
             "[bold #58a6ff]^N[/] new  "
             "[bold #58a6ff]^T[/] temp  "
+            "[bold #58a6ff]^B[/] sidebar  "
             "[bold #58a6ff]^S[/] settings  "
             "[bold #58a6ff]^P[/] persona  "
             "[bold #58a6ff]^E[/] memory  "
@@ -747,6 +749,15 @@ class ZncApp(App):
         pl = self.query_one(ProcessLog)
         visible = pl.toggle()
         self.query_one(StatusBar).set_log_visible(visible)
+
+    def action_toggle_sidebar(self) -> None:
+        sb = self.query_one(Sidebar)
+        if "--hidden" in sb.classes:
+            sb.remove_class("--hidden")
+        else:
+            sb.add_class("--hidden")
+            # 사이드바 숨김 시 채팅창으로 포커스 이동
+            self.query_one(InputBar).focus_input()
 
     def action_focus_input(self) -> None:
         self.query_one(InputBar).focus_input()

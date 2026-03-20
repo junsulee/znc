@@ -19,12 +19,15 @@ $ai-msg:    #0d1117;
 Screen {
     background: $bg;
     color: $text;
+    layout: horizontal;
+    overflow: hidden hidden;
 }
 
 /* ── 사이드바 ─────────────────────────────────────── */
 #sidebar {
     width: 26;
     min-width: 26;
+    height: 100%;
     background: $bg-panel;
     border-right: tall $border;
     padding: 0;
@@ -103,6 +106,9 @@ Screen {
 
 /* ── 메인 채팅 영역 ───────────────────────────────── */
 #chat-pane {
+    width: 1fr;
+    height: 100%;
+    layout: vertical;
     background: $bg;
 }
 
@@ -125,6 +131,7 @@ Screen {
 }
 
 #message-view {
+    height: 1fr;
     background: $bg;
     padding: 1 2;
     scrollbar-background: $bg-panel;
@@ -216,8 +223,8 @@ Screen {
     background: $bg;
     border: tall $border;
     color: $text;
-    padding: 0 1;
-    height: 1;
+    /* height: 1 제거 — border: tall 은 위아래 각 1행 사용으로
+       height: 1 이면 내용 영역이 0이 되어 텍스트가 보이지 않음 */
 }
 
 #input-field:focus {

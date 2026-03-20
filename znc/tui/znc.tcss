@@ -251,7 +251,7 @@ Screen {
 #input-bar {
     height: auto;
     min-height: 3;
-    max-height: 9;
+    max-height: 12;
     border: tall $border;
     background: $bg-panel;
     padding: 0 1;
@@ -263,20 +263,28 @@ Screen {
     border: tall $accent;
 }
 
-#input-row {
+/* 다중 줄 이전 줄 미리보기 */
+#multiline-preview {
+    color: $text-muted;
+    background: $bg;
+    padding: 0 1;
     height: auto;
-    align: left top;
+    border-bottom: tall $bg-active;
 }
 
-/* ChatInput(TextArea): border 없음 — input-bar 박스가 프레임 */
+#input-row {
+    height: 3;
+    align: left middle;
+}
+
+/* Input: border 없음 — input-bar 박스가 프레임 */
 #input-field {
     width: 1fr;
     background: $bg;
     border: none;
     color: $text;
+    height: 1fr;
     padding: 0 1;
-    height: auto;
-    max-height: 7;
 }
 
 /* 줄바꿈 버튼 — Shift/Ctrl/Alt+Enter 안 되는 터미널용 fallback */

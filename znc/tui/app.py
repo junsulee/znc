@@ -108,6 +108,7 @@ class ZncApp(App):
         yield Sidebar()
         with Vertical(id="chat-pane"):
             yield Static(id="chat-header")
+            yield Static(id="temp-banner")   # 임시 채팅 알림 배너 (기본 hidden)
             yield MessageView()
             yield ProcessLog(self._ps)
             yield StatusBar(self._ps)
@@ -137,8 +138,27 @@ class ZncApp(App):
         self.query_one(ProcessLog).set_state(self._ps)
 
     # ------------------------------------------------------------------
-    # Header / Keybind
+    # Header / Keybind / Temp banner
     # ------------------------------------------------------------------
+    def _update_temp_banner(self) -> None:
+        """임시 채팅 여부에 따라 배너와 chat-pane 클래스 갱신."""
+        is_temp = bool(self._session and self._session.is_temp)
+        banner = self.query_one("#temp-banner", Static)
+        pane = self.query_one("#chat-pane", Vertical)
+        lang = self._settings.get("lang", "ko")
+
+        if is_temp:
+            msg = (
+                "임시 채팅 — 이 대화는 저장되지 않습니다"
+                if lang == "ko"
+                else "Temporary chat — This conversation won't be saved"
+            )
+            banner.update(f"  ⚡  {msg}")
+            pane.add_class("--temp")
+        else:
+            banner.update("")
+            pane.remove_class("--temp")
+
     def _update_header(self) -> None:
         cfg = self._settings
         backend = cfg.get("backend", "ollama")
@@ -225,6 +245,7 @@ class ZncApp(App):
         mv.clear()
         self._reset_process()
         self._update_header()
+        self._update_temp_banner()
 
     def _load_session(self, name: str, project: str | None) -> None:
         # 진행 중인 스트림 무효화
@@ -240,6 +261,7 @@ class ZncApp(App):
             mv.render_history(self._session.messages, self._ai_name)
             self._reset_process()
             self._update_header()
+            self._update_temp_banner()
         except FileNotFoundError:
             self._write_status(f"session not found: {name}", "red")
 

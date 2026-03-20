@@ -54,6 +54,7 @@ from znc.tui.screens.confirm import ConfirmScreen
 from znc.tui.screens.command_palette import CommandPaletteScreen
 from znc.tui.screens.about import AboutScreen
 from znc.tui.screens.message_saver import MessageSaverScreen
+from znc.tui.screens.move_session import MoveSessionScreen
 from znc.tui.widgets.chat_view import MessageView
 from znc.tui.widgets.input_bar import InputBar
 from znc.tui.widgets.process_log import ProcessLog
@@ -977,6 +978,80 @@ class ZncApp(App):
             self.query_one(Sidebar).refresh_lists()
         self.push_screen(RenameSessionScreen(event.name), _do)
 
+    def on_sidebar_session_rename_requested(
+        self, event: Sidebar.SessionRenameRequested,
+    ) -> None:
+        """세션 이름 변경 — 표시 제목(title)을 변경, 파일명은 유지."""
+        lang = self._settings.get("lang", "ko")
+
+        def callback(new_title: str | None) -> None:
+            if not new_title or new_title == event.display:
+                return
+            sd = (ProjectRepository.sessions_dir(event.project)
+                  if event.project else self._sessions_dir())
+            path = os.path.join(sd, f"{event.name}.json")
+            if not os.path.exists(path):
+                return
+            import json as _json
+            with open(path, "r", encoding="utf-8") as f:
+                d = _json.load(f)
+            d["title"] = new_title
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(d, f, indent=2, ensure_ascii=False)
+            if self._session and self._session.name == event.name:
+                self._session.title = new_title
+                self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+            self._write_status(_ui(lang, "renamed", name=new_title), "green")
+
+        # 현재 표시 제목을 초기값으로 전달
+        self.push_screen(RenameSessionScreen(event.display), callback)
+
+    def on_sidebar_session_move_requested(
+        self, event: Sidebar.SessionMoveRequested,
+    ) -> None:
+        """세션을 다른 프로젝트로 이동."""
+        lang = self._settings.get("lang", "ko")
+
+        def callback(dest: str | None) -> None:
+            if dest is None:
+                return  # 취소
+            # 출발지 디렉터리
+            src_sd = (ProjectRepository.sessions_dir(event.from_project)
+                      if event.from_project else SESSIONS_DIR)
+            src_path = os.path.join(src_sd, f"{event.name}.json")
+            if not os.path.exists(src_path):
+                self._write_status(f"session not found: {event.name}", "red")
+                return
+            # 목적지 디렉터리
+            if dest:
+                dst_sd = ProjectRepository.sessions_dir(dest)
+            else:
+                ensure_dirs()
+                dst_sd = SESSIONS_DIR
+            os.makedirs(dst_sd, exist_ok=True)
+            dst_path = os.path.join(dst_sd, f"{event.name}.json")
+            # 파일 이동 + project 필드 업데이트
+            import json as _json, shutil
+            with open(src_path, "r", encoding="utf-8") as f:
+                d = _json.load(f)
+            d["project"] = dest or None
+            with open(dst_path, "w", encoding="utf-8") as f:
+                _json.dump(d, f, indent=2, ensure_ascii=False)
+            if src_path != dst_path:
+                os.remove(src_path)
+            # 현재 세션이면 project 업데이트
+            if self._session and self._session.name == event.name:
+                self._session.project = dest or None
+                self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+            self._write_status(_ui(lang, "moved", name=event.name), "green")
+
+        self.push_screen(
+            MoveSessionScreen(event.name, event.from_project, lang=lang),
+            callback,
+        )
+
     def on_sidebar_session_delete_requested(
         self, event: Sidebar.SessionDeleteRequested,
     ) -> None:
@@ -1081,6 +1156,12 @@ class ZncApp(App):
 
     def action_open_command_palette(self) -> None:
         self.push_screen(CommandPaletteScreen())
+
+    def on_static_click(self, event) -> None:
+        """하단 바 클릭 → 커맨드 팔레트 열기."""
+        widget = event.widget
+        if getattr(widget, "id", "") == "keybind-bar":
+            self.action_open_command_palette()
 
     def action_toggle_log(self) -> None:
         pl = self.query_one(ProcessLog)

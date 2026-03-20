@@ -1,21 +1,11 @@
 """
-사이드바 위젯 — 프로젝트/세션 탐색 (Windows Explorer 스타일).
+사이드바 위젯 개선.
 
-탐색 구조:
-  PROJECTS
-    (no project)   ← 프로젝트 없는 세션들 (기본)
-    > work         ← 클릭 시 진입
-    > personal
-
-  SESSIONS [work]  ← 현재 위치
-    ..             ← 상위로 돌아가기
-    session1
-
-단축키:
-  n / t / p   새 세션 / 임시 / 새 프로젝트
-  d / r       삭제 / 이름변경  (세션 또는 프로젝트)
-  /           세션 검색
-  Esc         검색 닫기
+- inbox 제거: 프로젝트 목록에는 실제 프로젝트만
+- 기본 뷰: 전체 세션 (전역 + 모든 프로젝트) 합산
+- 프로젝트 진입 시: 해당 프로젝트의 세션만
+- rename 버그 수정: on_list_view_highlighted 에서 _selected_name 동기화
+- 세션 이동(m) 기능 추가
 """
 from __future__ import annotations
 
@@ -39,10 +29,10 @@ class Sidebar(Widget):
         Binding("slash",  "focus_search",   "search", show=False),
         Binding("d",      "delete_item",    "delete", show=False),
         Binding("r",      "rename_item",    "rename", show=False),
+        Binding("m",      "move_item",      "move",   show=False),
         Binding("escape", "clear_search",   "esc",    show=False),
     ]
 
-    # ── Messages ──────────────────────────────────────────────
     class SessionSelected(Message):
         def __init__(self, name: str, project: str | None) -> None:
             super().__init__()
@@ -65,10 +55,17 @@ class Sidebar(Widget):
             self.project = project
 
     class SessionRenameRequested(Message):
-        def __init__(self, name: str, project: str | None) -> None:
+        def __init__(self, name: str, project: str | None, display: str) -> None:
             super().__init__()
             self.name = name
             self.project = project
+            self.display = display   # 현재 표시 제목
+
+    class SessionMoveRequested(Message):
+        def __init__(self, name: str, from_project: str | None) -> None:
+            super().__init__()
+            self.name = name
+            self.from_project = from_project
 
     class ProjectDeleteRequested(Message):
         def __init__(self, name: str) -> None:
@@ -80,13 +77,13 @@ class Sidebar(Widget):
             super().__init__()
             self.name = name
 
-    # ──────────────────────────────────────────────────────────
     def __init__(self) -> None:
         super().__init__(id="sidebar")
         self._current_project: str | None = None
         self._filter: str = ""
         self._sessions: list[Session] = []
         self._selected_name: str | None = None
+        self._selected_project: str | None = None  # 선택된 세션의 실제 프로젝트
         self._project_highlight: int = 0
         self._lang: str = "ko"
 
@@ -135,21 +132,35 @@ class Sidebar(Widget):
     def _fill_project_list(self) -> None:
         lv = self.query_one("#project-list", ListView)
         lv.clear()
-        # inbox: 프로젝트에 속하지 않은 세션들의 기본 공간
-        lv.append(ListItem(Label("  inbox", markup=False)))
+        # inbox 없음 — 실제 프로젝트만 표시
         for proj in ProjectRepository.list_all():
             lv.append(ListItem(Label(f"  > {proj.name}", markup=False)))
 
     def _reload_sessions(self) -> None:
         ensure_dirs()
-        sd = (ProjectRepository.sessions_dir(self._current_project)
-              if self._current_project else SESSIONS_DIR)
-        self._sessions = Session.list_sessions(sd)
+        if self._current_project:
+            # 프로젝트 진입: 해당 프로젝트 세션만
+            sd = ProjectRepository.sessions_dir(self._current_project)
+            self._sessions = Session.list_sessions(sd)
+        else:
+            # 전체 뷰: 전역 + 모든 프로젝트 합산
+            all_sessions: list[Session] = []
+            all_sessions += Session.list_sessions(SESSIONS_DIR)
+            for proj in ProjectRepository.list_all():
+                sd = ProjectRepository.sessions_dir(proj.name)
+                all_sessions += Session.list_sessions(sd)
+            # updated_at 기준 최신순 정렬
+            all_sessions.sort(key=lambda s: s.updated_at or "", reverse=True)
+            self._sessions = all_sessions
+
         self._fill_session_list()
-        # SESSIONS 헤더 업데이트
+        self._update_sessions_header()
+
+    def _update_sessions_header(self) -> None:
+        lang = self._lang
         label = (
-            f"{_ui(self._lang, 'sessions')}  [{self._current_project}]"
-            if self._current_project else _ui(self._lang, "sessions")
+            f"{_ui(lang, 'sessions')}  [{self._current_project}]"
+            if self._current_project else _ui(lang, "sessions")
         )
         try:
             labels = self.query("Static.section-label")
@@ -166,6 +177,9 @@ class Sidebar(Widget):
         q = self._filter.lower()
         for s in self._sessions:
             text = s.display_title
+            # 전체 뷰에서 프로젝트 소속 세션에 레이블 표시
+            if not self._current_project and s.project:
+                text = f"[{s.project}]  {text}"
             if q and q not in text.lower():
                 continue
             cls = "sidebar-item--active" if s.name == self._selected_name else ""
@@ -175,14 +189,43 @@ class Sidebar(Widget):
         q = self._filter.lower()
         return [
             s for s in self._sessions
-            if not q or q in s.display_title.lower()
+            if not q or q in (
+                f"[{s.project}]  {s.display_title}" if (not self._current_project and s.project)
+                else s.display_title
+            ).lower()
         ]
+
+    def _get_selected_session(self) -> Session | None:
+        if self._selected_name is None:
+            return None
+        for s in self._sessions:
+            if s.name == self._selected_name:
+                return s
+        return None
 
     # ── Events ────────────────────────────────────────────────
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        """하이라이트 변경 시 프로젝트 인덱스 추적."""
-        if event.list_view.id == "project-list":
-            self._project_highlight = event.list_view.index or 0
+        lv = event.list_view
+        idx = event.list_view.index
+        if lv.id == "project-list":
+            self._project_highlight = idx or 0
+        elif lv.id == "session-list":
+            self._sync_selected_from_idx(idx)
+
+    def _sync_selected_from_idx(self, idx: int | None) -> None:
+        if idx is None:
+            return
+        base = 1 if self._current_project else 0
+        if self._current_project and idx == 0:
+            self._selected_name = None
+            self._selected_project = None
+            return
+        visible = self._visible_sessions()
+        real = idx - base
+        if 0 <= real < len(visible):
+            s = visible[real]
+            self._selected_name = s.name
+            self._selected_project = s.project
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         event.stop()
@@ -191,27 +234,25 @@ class Sidebar(Widget):
 
         if lv.id == "project-list":
             projects = ProjectRepository.list_all()
-            if idx == 0:
-                self._current_project = None
-            elif idx is not None and idx - 1 < len(projects):
-                self._current_project = projects[idx - 1].name
+            if idx is not None and idx < len(projects):
+                self._current_project = projects[idx].name
             self._filter = ""
             self._reload_sessions()
 
         elif lv.id == "session-list":
             base = 1 if self._current_project else 0
             if self._current_project and idx == 0:
-                # ".." → 상위로
                 self._current_project = None
                 self._filter = ""
                 self._reload_sessions()
                 return
             visible = self._visible_sessions()
             real = (idx or 0) - base
-            if real >= 0 and real < len(visible):
-                name = visible[real].name
-                self._selected_name = name
-                self.post_message(self.SessionSelected(name, self._current_project))
+            if 0 <= real < len(visible):
+                s = visible[real]
+                self._selected_name = s.name
+                self._selected_project = s.project
+                self.post_message(self.SessionSelected(s.name, s.project))
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._filter = event.value
@@ -239,34 +280,35 @@ class Sidebar(Widget):
         self._close_search()
 
     def action_delete_item(self) -> None:
-        """포커스 위치에 따라 세션 또는 프로젝트 삭제."""
         focused = self.app.focused
         if focused and getattr(focused, "id", "") == "project-list":
-            # 프로젝트 삭제 (index 0 = no-project 는 삭제 불가)
             projects = ProjectRepository.list_all()
             idx = self._project_highlight
-            if idx >= 1 and idx - 1 < len(projects):
-                self.post_message(self.ProjectDeleteRequested(projects[idx - 1].name))
+            if idx < len(projects):
+                self.post_message(self.ProjectDeleteRequested(projects[idx].name))
         else:
-            # 세션 삭제
-            if self._selected_name:
-                self.post_message(
-                    self.SessionDeleteRequested(self._selected_name, self._current_project)
-                )
+            s = self._get_selected_session()
+            if s:
+                self.post_message(self.SessionDeleteRequested(s.name, s.project))
 
     def action_rename_item(self) -> None:
-        """포커스 위치에 따라 세션 또는 프로젝트 이름변경."""
         focused = self.app.focused
         if focused and getattr(focused, "id", "") == "project-list":
             projects = ProjectRepository.list_all()
             idx = self._project_highlight
-            if idx >= 1 and idx - 1 < len(projects):
-                self.post_message(self.ProjectRenameRequested(projects[idx - 1].name))
+            if idx < len(projects):
+                self.post_message(self.ProjectRenameRequested(projects[idx].name))
         else:
-            if self._selected_name:
+            s = self._get_selected_session()
+            if s:
                 self.post_message(
-                    self.SessionRenameRequested(self._selected_name, self._current_project)
+                    self.SessionRenameRequested(s.name, s.project, s.display_title)
                 )
+
+    def action_move_item(self) -> None:
+        s = self._get_selected_session()
+        if s:
+            self.post_message(self.SessionMoveRequested(s.name, s.project))
 
     def _close_search(self) -> None:
         inp = self.query_one("#session-search", Input)

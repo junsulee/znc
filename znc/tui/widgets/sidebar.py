@@ -3,12 +3,21 @@
 
 단축키 (사이드바 포커스 시):
   n     새 세션
-  t     임시 채팅
+  t     임시 채팅 (저장 안 함)
   p     새 프로젝트
-  /     세션 검색 (인라인 필터)
+  /     세션 검색 (실시간 필터)
   d     선택 세션 삭제
   r     선택 세션 이름 변경
-  Esc   검색 취소 / 포커스 해제
+  Esc   검색 닫기
+
+핵심 설계:
+  ListView.clear() + append() 를 ID 없는 ListItem 으로 사용한다.
+  ID 가 없으면 Textual 의 _ensure_unique_id 를 건너뛰므로
+  clear() 의 비동기 제거가 완료되기 전에 append() 를 호출해도
+  DuplicateIds 오류가 발생하지 않는다.
+
+  remove() + mount() 패턴은 ListView 자체가 두 번 DOM 에 존재하는
+  순간이 발생해 시각적 중복이 나타나므로 사용하지 않는다.
 """
 from __future__ import annotations
 
@@ -79,8 +88,10 @@ class Sidebar(Widget):
         yield Static("SESSIONS", classes="section-label")
         yield Input(placeholder="filter...", id="session-search")
         yield ListView(id="session-list")
+        # [[ ]] 은 Rich 마크업에서 리터럴 [ ] 를 출력하는 이스케이프
         yield Static(
-            "[n]ew [t]emp [p]roj  [/]search  [d]el [r]ename",
+            "[[n]]ew  [[t]]emp  [[p]]roj  "
+            "[[/]]search  [[d]]el  [[r]]ename",
             id="sidebar-footer",
         )
 
@@ -90,7 +101,7 @@ class Sidebar(Widget):
 
     # ── Public API ─────────────────────────────────────────────
     def refresh_lists(self) -> None:
-        self._rebuild_project_list()
+        self._fill_project_list()
         self._reload_sessions()
 
     def update_session_title(self, name: str, title: str) -> None:
@@ -98,65 +109,41 @@ class Sidebar(Widget):
             if s.name == name:
                 s.title = title
                 break
-        self._rebuild_session_list()
+        self._fill_session_list()
 
-    # ── 내부: ListView 전체 교체 ────────────────────────────────
-    # Textual의 ListView.clear() + append() 패턴은 clear()가 비동기이므로
-    # await 없이 호출하면 DOM 정리 전에 중복 ID 삽입 오류가 발생한다.
-    # ListView 위젯 자체를 remove → mount 로 교체해 이 문제를 회피한다.
-
-    def _rebuild_project_list(self) -> None:
-        try:
-            old = self.query_one("#project-list", ListView)
-            old.remove()
-        except Exception:
-            pass
-        items: list[ListItem] = [ListItem(Label("[all]"))]
+    # ── 내부: clear() + append() (ID 없는 ListItem) ────────────
+    def _fill_project_list(self) -> None:
+        lv = self.query_one("#project-list", ListView)
+        lv.clear()
+        lv.append(ListItem(Label("[all]")))
         for proj in ProjectRepository.list_all():
-            items.append(ListItem(Label(proj.name)))
-        new_lv = ListView(*items, id="project-list")
-        # sidebar-title 아래, 첫 번째 section-label 바로 뒤에 삽입
-        try:
-            anchor = self.query("Static.section-label")[0]
-            self.mount(new_lv, after=anchor)
-        except Exception:
-            self.mount(new_lv)
+            lv.append(ListItem(Label(proj.name)))
 
     def _reload_sessions(self) -> None:
         ensure_dirs()
         sd = (ProjectRepository.sessions_dir(self._current_project)
               if self._current_project else SESSIONS_DIR)
         self._sessions = Session.list_sessions(sd)
-        self._rebuild_session_list()
+        self._fill_session_list()
 
-    def _rebuild_session_list(self) -> None:
-        try:
-            old = self.query_one("#session-list", ListView)
-            old.remove()
-        except Exception:
-            pass
+    def _fill_session_list(self) -> None:
+        lv = self.query_one("#session-list", ListView)
+        lv.clear()
         q = self._filter.lower()
-        items: list[ListItem] = []
         for s in self._sessions:
             label_text = s.display_title
             if q and q not in label_text.lower():
                 continue
             lbl_cls = "sidebar-item--active" if s.name == self._selected_name else ""
-            items.append(ListItem(Label(label_text, classes=lbl_cls)))
-        new_lv = ListView(*items, id="session-list")
-        try:
-            anchor = self.query_one("#session-search", Input)
-            self.mount(new_lv, after=anchor)
-        except Exception:
-            self.mount(new_lv)
+            lv.append(ListItem(Label(label_text, classes=lbl_cls)))
 
     # ── Events ────────────────────────────────────────────────
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         event.stop()
         lv = event.list_view
         idx = event.list_view.index
+
         if lv.id == "project-list":
-            # 인덱스 0 = [all], 나머지는 프로젝트 순서
             projects = ProjectRepository.list_all()
             if idx == 0:
                 self._current_project = None
@@ -164,10 +151,12 @@ class Sidebar(Widget):
                 self._current_project = projects[idx - 1].name
             self._filter = ""
             self._reload_sessions()
+
         elif lv.id == "session-list":
             visible = [
                 s for s in self._sessions
-                if not self._filter or self._filter.lower() in s.display_title.lower()
+                if not self._filter
+                or self._filter.lower() in s.display_title.lower()
             ]
             if idx is not None and idx < len(visible):
                 name = visible[idx].name
@@ -176,7 +165,7 @@ class Sidebar(Widget):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._filter = event.value
-        self._rebuild_session_list()
+        self._fill_session_list()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._close_search()
@@ -221,7 +210,7 @@ class Sidebar(Widget):
         search = self.query_one("#session-search", Input)
         search.display = False
         self._filter = ""
-        self._rebuild_session_list()
+        self._fill_session_list()
         try:
             self.query_one("#session-list", ListView).focus()
         except Exception:

@@ -244,6 +244,7 @@ Screen {
     border: tall $border;
     background: $bg-panel;
     padding: 0 1;
+    margin-bottom: 1;
 }
 
 /* 입력창에 포커스가 들어오면 외곽 박스 강조 */
@@ -266,31 +267,39 @@ Screen {
     padding: 0 1;
 }
 
-/* 전역 Button 규칙이 action-btn 에 적용되지 않도록 명시적 오버라이드 */
+/* 전송/중단 버튼: 5자폭 × 1행 ≈ 터미널 정사각형 비율
+   모든 hover/상태에 border: none 명시 — 전역 Button:hover { border: tall } 오버라이드 */
 #action-btn {
-    width: 3;
-    min-width: 3;
+    width: 5;
+    min-width: 5;
     height: 1fr;
     margin: 0 0 0 1;
-    padding: 0 1;
+    padding: 0 2;
     background: $bg-active;
     border: none;
     color: $text-muted;
 }
 
+#action-btn:hover {
+    border: none;
+}
+
 #action-btn.--send:hover {
     color: $accent;
     background: $bg-hover;
+    border: none;
 }
 
 #action-btn.--stop {
     background: #2d1a1a;
     color: #f85149;
     text-style: bold;
+    border: none;
 }
 
 #action-btn.--stop:hover {
     background: #3d2020;
+    border: none;
 }
 
 /* ── 자동완성 팝업 ────────────────────────────────── */

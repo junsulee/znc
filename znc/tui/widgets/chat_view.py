@@ -35,13 +35,12 @@ class MessageView(Widget):
     }
     #message-log {
         height: auto;
-        min-height: 100%;
         background: #0d1117;
         padding: 1 2;
         scrollbar-size: 0 0;
     }
     #stream-current {
-        padding: 0 2 1 4;
+        padding: 0 2 1 2;
         background: #0d1117;
         color: #e6edf3;
         display: none;
@@ -51,6 +50,7 @@ class MessageView(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._stream_buffer = ""
+        self._stream_ai_name = ""
 
     def compose(self) -> ComposeResult:
         yield RichLog(
@@ -83,30 +83,41 @@ class MessageView(Widget):
         self.scroll_end(animate=False)
 
     def begin_assistant_turn(self, ai_name: str) -> None:
-        """스트리밍 시작 — AI 이름 헤더 기록 후 스트리밍 영역 활성화."""
-        self.query_one("#message-log", RichLog).write(
-            Text(f"\n{ai_name}", style="bold #3fb950")
-        )
+        """스트리밍 시작 — AI 이름과 본문을 Static 에 함께 표시.
+
+        RichLog 에 이름을 쓰고 Static 에 본문을 따로 쓰면
+        Static 이 RichLog 아래(화면 하단)에 나타나는 문제가 있다.
+        이름과 본문을 Static 하나에 합쳐 RichLog 바로 뒤에 보이게 한다.
+        """
+        self._stream_ai_name = ai_name
         self._stream_buffer = ""
         sc = self.query_one("#stream-current", Static)
-        sc.update("")
+        sc.update(Text(f"\n{ai_name}", style="bold #3fb950"))
         sc.display = True
+        self.scroll_end(animate=False)
 
     def append_token(self, token: str) -> None:
-        """토큰 누적 후 Static 한 번에 업데이트 (줄바꿈 없음)."""
+        """토큰 누적 — AI 이름 + 누적 텍스트를 Static 에 한 번에 업데이트."""
         self._stream_buffer += token
-        self.query_one("#stream-current", Static).update(self._stream_buffer)
+        sc = self.query_one("#stream-current", Static)
+        t = Text()
+        t.append(f"\n{self._stream_ai_name}", style="bold #3fb950")
+        t.append(f"\n{self._stream_buffer}")
+        sc.update(t)
         self.scroll_end(animate=False)
 
     def end_streaming(self) -> None:
-        """스트리밍 완료 — Static 숨기고 Markdown 으로 RichLog 에 기록."""
+        """스트리밍 완료 — Static 숨기고 AI 이름 + Markdown 본문을 RichLog 에 기록."""
         content = self._stream_buffer
+        ai_name = self._stream_ai_name
         self._stream_buffer = ""
+        self._stream_ai_name = ""
         sc = self.query_one("#stream-current", Static)
         sc.display = False
         sc.update("")
         if content:
             log = self.query_one("#message-log", RichLog)
+            log.write(Text(f"\n{ai_name}", style="bold #3fb950"))
             try:
                 log.write(Markdown(content))
             except Exception:

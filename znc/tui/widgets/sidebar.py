@@ -117,8 +117,8 @@ class Sidebar(Widget):
     def _fill_project_list(self) -> None:
         lv = self.query_one("#project-list", ListView)
         lv.clear()
-        # (no project): 마크업 없이 plain text
-        lv.append(ListItem(Label("  (no project)", markup=False)))
+        # inbox: 프로젝트에 속하지 않은 세션들의 기본 공간
+        lv.append(ListItem(Label("  inbox", markup=False)))
         for proj in ProjectRepository.list_all():
             lv.append(ListItem(Label(f"  > {proj.name}", markup=False)))
 
@@ -164,7 +164,7 @@ class Sidebar(Widget):
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         """하이라이트 변경 시 프로젝트 인덱스 추적."""
         if event.list_view.id == "project-list":
-            self._project_highlight = event.index or 0
+            self._project_highlight = event.list_view.index or 0
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         event.stop()

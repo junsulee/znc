@@ -4,6 +4,7 @@ CLI 공통 유틸리티 함수
 from __future__ import annotations
 
 import sys
+import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -13,21 +14,113 @@ from znc.backends.base import BaseBackend
 from znc.core.models import Session
 
 
+def _nfc(text: str) -> str:
+    """
+    Unicode NFC 정규화.
+
+    SSH 클라이언트 중 일부는 한글을 NFD(자모 분리형) 코드포인트로 전송한다.
+      예) U+1100(ᄀ) + U+1161(ᅡ) → NFC 후 U+AC00(가)
+
+    Python unicodedata.normalize('NFC', ...) 가 이를 자동으로 조합한다.
+    """
+    return unicodedata.normalize("NFC", text)
+
+
 def safe_input(prompt: str) -> str:
+    """
+    한글 입력 안전 처리:
+      1. stdout flush 보장 (프롬프트가 즉시 표시되도록)
+      2. 바이너리 버퍼에서 직접 읽어 인코딩 오류 방지
+      3. UTF-8 디코딩 실패 시 EUC-KR 재시도 (일부 SSH 클라이언트 대응)
+      4. NFC 정규화 — 자소분리(NFD 자모) → 완성형 음절로 조합
+      5. 중복 자모 감지: 완성형 음절 앞에 동일 초성 자모가 붙은 경우 제거
+    """
     sys.stdout.write(prompt)
     sys.stdout.flush()
     try:
-        raw_bytes = sys.stdin.buffer.readline()
-        line = raw_bytes.decode("utf-8", errors="replace").strip()
-        if "\ufffd" in line:
-            click.secho(
-                "⚠️  입력에 깨진 문자가 감지되어 \ufffd 로 표시됩니다.",
-                fg="yellow",
-            )
-        return line
+        raw = sys.stdin.buffer.readline()
+    except (EOFError, KeyboardInterrupt):
+        raise
     except Exception as e:
         click.secho(f"❌ 입력 오류: {e}", fg="red")
         return ""
+
+    if not raw:
+        return ""
+
+    # ── 인코딩 디코딩 ──────────────────────────────────────────────
+    line: str
+    try:
+        line = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            line = raw.decode("euc-kr")
+        except UnicodeDecodeError:
+            line = raw.decode("utf-8", errors="replace")
+            click.secho(
+                "⚠️  입력에 인식 불가 문자가 포함되었습니다 (UTF-8/EUC-KR 모두 실패).",
+                fg="yellow",
+            )
+
+    line = line.rstrip("\r\n").strip()
+
+    # ── NFC 정규화 (자소분리 수정) ──────────────────────────────────
+    line = _nfc(line)
+
+    # ── 중복 자모 제거 ──────────────────────────────────────────────
+    # 일부 IME가 미리보기 초성(ㄱ~ㅎ, U+3131~U+314E)을 먼저 보낸 뒤
+    # 백스페이스 없이 조합 완성 음절을 추가 전송하는 경우,
+    # "ㄱ가" 처럼 자모 + 음절이 연속 등장한다. 이를 제거한다.
+    line = _remove_leading_jamo_duplicates(line)
+
+    return line
+
+
+# 한글 자모 범위 (호환 자모 U+3131~U+318E, 채움 문자 포함)
+_COMPAT_JAMO_START = 0x3131
+_COMPAT_JAMO_END   = 0x318E
+# NFC 조합 음절 범위 U+AC00~U+D7A3
+_SYLLABLE_START = 0xAC00
+_SYLLABLE_END   = 0xD7A3
+# 초성 인덱스 (가-힣 구조: 초성 21*28 + 중성 28 + 종성)
+_INITIAL_CONSONANTS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+
+
+def _syllable_initial(ch: str) -> str:
+    """NFC 음절의 초성 자모 반환. 음절이 아니면 빈 문자열."""
+    cp = ord(ch)
+    if not (_SYLLABLE_START <= cp <= _SYLLABLE_END):
+        return ""
+    idx = (cp - _SYLLABLE_START) // (21 * 28)
+    return _INITIAL_CONSONANTS[idx] if idx < len(_INITIAL_CONSONANTS) else ""
+
+
+def _is_compat_jamo(ch: str) -> bool:
+    return _COMPAT_JAMO_START <= ord(ch) <= _COMPAT_JAMO_END
+
+
+def _remove_leading_jamo_duplicates(text: str) -> str:
+    """
+    패턴: <호환 자모> <해당 자모가 초성인 음절>
+    예)  'ㄱ가나다' → '가나다'
+         'ㅎ하하하' → '하하하'  (앞의 ㅎ만 제거, 뒤 음절은 유지)
+    """
+    if len(text) < 2:
+        return text
+    result = list(text)
+    i = 0
+    while i < len(result) - 1:
+        cur = result[i]
+        nxt = result[i + 1]
+        if (
+            _is_compat_jamo(cur)
+            and _SYLLABLE_START <= ord(nxt) <= _SYLLABLE_END
+            and cur == _syllable_initial(nxt)
+        ):
+            result.pop(i)   # 자모 제거, i는 그대로 → 다음 문자 재검사
+        else:
+            i += 1
+    return "".join(result)
 
 
 def build_prompt(session: Session, ai_name: str) -> str:
@@ -59,10 +152,9 @@ def generate_session_title(session: Session, backend: BaseBackend) -> str:
     )
     try:
         title = backend.generate(prompt)
-        title = title.strip().splitlines()[0]  # 첫 줄만
+        title = title.strip().splitlines()[0]
         title = title.replace(" ", "-").replace("/", "-")
-        # 따옴표 제거
-        title = title.strip("\"'""''")
+        title = title.strip("\"'\u201c\u201d\u2018\u2019")
         return title[:40] or generate_default_session_name()
     except Exception:
         return generate_default_session_name()
@@ -71,11 +163,11 @@ def generate_session_title(session: Session, backend: BaseBackend) -> str:
 def print_session_history(session: Session, ai_name: str) -> None:
     for message in session.messages:
         if message.role == "user":
-            click.secho(f"👤 User: {message.content}", fg="yellow")
+            click.secho(f"User: {message.content}", fg="yellow")
         elif message.role == "assistant":
-            click.secho(f"🤖 {ai_name}: {message.content}", fg="green")
+            click.secho(f"{ai_name}: {message.content}", fg="green")
         elif message.role == "system":
-            click.secho(f"⚙️  [system]: {message.content}", fg="blue", dim=True)
+            click.secho(f"[system]: {message.content}", fg="blue", dim=True)
 
 
 def run_chat_loop(
@@ -108,7 +200,7 @@ def run_chat_loop(
         prompt = build_prompt(session, ai_name)
 
         click.secho("\n" + "─" * 44, fg="cyan")
-        click.secho(f"🤖 {ai_name}:", fg="green", bold=True)
+        click.secho(f"{ai_name}:", fg="green", bold=True)
         click.secho("─" * 44, fg="cyan")
 
         accumulated = ""

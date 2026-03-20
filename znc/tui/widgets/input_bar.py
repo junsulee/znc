@@ -1,7 +1,15 @@
 """
 입력창 위젯 — /명령어 자동완성 포함.
+
+한글 입력 처리:
+  - on_input_changed: NFC 정규화 후 값 교체 (_normalizing 플래그로 재귀 방지)
+  - on_input_submitted: 제출 직전 NFC + 중복 자모 제거
+  - 자동완성 ListView: clear()+append() 대신 remove()+mount() 패턴 사용
+    (Textual 비동기 clear() 의 DuplicateIds 경쟁조건 방지)
 """
 from __future__ import annotations
+
+import unicodedata
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -23,14 +31,57 @@ SLASH_COMMANDS = [
 ]
 
 
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
+
+
+_COMPAT_JAMO_START = 0x3131
+_COMPAT_JAMO_END   = 0x318E
+_SYLLABLE_START    = 0xAC00
+_SYLLABLE_END      = 0xD7A3
+_INITIAL_CONSONANTS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+
+
+def _syllable_initial(ch: str) -> str:
+    cp = ord(ch)
+    if not (_SYLLABLE_START <= cp <= _SYLLABLE_END):
+        return ""
+    idx = (cp - _SYLLABLE_START) // (21 * 28)
+    return _INITIAL_CONSONANTS[idx] if idx < len(_INITIAL_CONSONANTS) else ""
+
+
+def _remove_jamo_duplicates(text: str) -> str:
+    """호환 자모 + 해당 초성 음절 중복 제거 (IME 미리보기 잔재)."""
+    if len(text) < 2:
+        return text
+    result = list(text)
+    i = 0
+    while i < len(result) - 1:
+        cur, nxt = result[i], result[i + 1]
+        if (
+            _COMPAT_JAMO_START <= ord(cur) <= _COMPAT_JAMO_END
+            and _SYLLABLE_START <= ord(nxt) <= _SYLLABLE_END
+            and cur == _syllable_initial(nxt)
+        ):
+            result.pop(i)
+        else:
+            i += 1
+    return "".join(result)
+
+
+def _sanitize(text: str) -> str:
+    """NFC 정규화 + 중복 자모 제거."""
+    return _remove_jamo_duplicates(_nfc(text))
+
+
 class InputBar(Widget):
     """입력창 + /명령어 자동완성."""
 
     BINDINGS = [
         Binding("escape", "close_autocomplete", show=False),
-        Binding("up", "autocomplete_up", show=False),
-        Binding("down", "autocomplete_down", show=False),
-        Binding("tab", "autocomplete_select", show=False),
+        Binding("up",     "autocomplete_up",    show=False),
+        Binding("down",   "autocomplete_down",  show=False),
+        Binding("tab",    "autocomplete_select", show=False),
     ]
 
     class Submitted(Message):
@@ -43,6 +94,7 @@ class InputBar(Widget):
         self._ac_visible = False
         self._ac_index = 0
         self._ac_items: list[tuple[str, str]] = []
+        self._normalizing = False   # NFC 재귀 방지 플래그
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="> ", id="input-field")
@@ -54,24 +106,56 @@ class InputBar(Widget):
     def focus_input(self) -> None:
         self.query_one("#input-field", Input).focus()
 
+    # ── 한글 NFC 정규화 (입력 중 실시간) ──────────────────────────
     def on_input_changed(self, event: Input.Changed) -> None:
+        if self._normalizing:
+            # 값 교체로 인한 재귀 호출 — 자동완성만 처리
+            val = event.value
+            if val.startswith("/"):
+                self._show_autocomplete(val)
+            else:
+                self._hide_autocomplete()
+            return
+
         val = event.value
+        sanitized = _sanitize(val)
+
+        if sanitized != val:
+            # NFC 정규화 또는 중복 자모 제거가 필요한 경우 값 교체
+            self._normalizing = True
+            try:
+                inp = self.query_one("#input-field", Input)
+                # 커서 위치를 비율로 유지 (조합으로 길이가 달라질 수 있음)
+                old_pos = inp.cursor_position
+                inp.value = sanitized
+                new_pos = min(old_pos, len(sanitized))
+                inp.cursor_position = new_pos
+            finally:
+                self._normalizing = False
+            # on_input_changed 가 sanitized 값으로 다시 호출되므로 여기서 return
+            return
+
         if val.startswith("/"):
             self._show_autocomplete(val)
         else:
             self._hide_autocomplete()
 
+    # ── 제출 (Enter) ───────────────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        if not text:
-            return
         if self._ac_visible:
             self._apply_autocomplete()
             return
         self._hide_autocomplete()
+
+        # 제출 직전 한 번 더 정규화 (on_input_changed 가 놓친 경우 대비)
+        text = _sanitize(event.value.strip())
+        if not text:
+            return
+
         self.query_one("#input-field", Input).value = ""
         self.post_message(self.Submitted(text))
 
+    # ── 자동완성 (ListView remove+mount 패턴) ─────────────────────
     def _show_autocomplete(self, val: str) -> None:
         prefix = val.lower()
         matches = [(cmd, desc) for cmd, desc in SLASH_COMMANDS if cmd.startswith(prefix)]
@@ -81,18 +165,30 @@ class InputBar(Widget):
 
         self._ac_items = matches
         self._ac_index = 0
-        lv = self.query_one("#autocomplete", ListView)
-        lv.clear()
-        for cmd, desc in matches:
-            lv.append(ListItem(
-                Label(f"[bold]{cmd}[/] [dim]{desc}[/]", markup=True),
-                id=f"ac-{cmd.lstrip('/')}",
-            ))
-        lv.display = True
+
+        # 기존 ListView 제거 후 새로 마운트 (DuplicateIds 방지)
+        try:
+            old = self.query_one("#autocomplete", ListView)
+            old.remove()
+        except Exception:
+            pass
+
+        items = [
+            ListItem(Label(f"[bold]{cmd}[/] [dim]{desc}[/]", markup=True))
+            for cmd, desc in matches
+        ]
+        new_lv = ListView(*items, id="autocomplete")
+        inp = self.query_one("#input-field", Input)
+        self.mount(new_lv, after=inp)
+        new_lv.display = True
         self._ac_visible = True
 
     def _hide_autocomplete(self) -> None:
-        self.query_one("#autocomplete").display = False
+        try:
+            lv = self.query_one("#autocomplete", ListView)
+            lv.display = False
+        except Exception:
+            pass
         self._ac_visible = False
         self._ac_items = []
         self._ac_index = 0
@@ -104,6 +200,7 @@ class InputBar(Widget):
         self.query_one("#input-field", Input).value = cmd + " "
         self._hide_autocomplete()
 
+    # ── Actions ───────────────────────────────────────────────────
     def action_close_autocomplete(self) -> None:
         self._hide_autocomplete()
 
@@ -111,13 +208,19 @@ class InputBar(Widget):
         if not self._ac_visible:
             return
         self._ac_index = max(0, self._ac_index - 1)
-        self.query_one("#autocomplete", ListView).index = self._ac_index
+        try:
+            self.query_one("#autocomplete", ListView).index = self._ac_index
+        except Exception:
+            pass
 
     def action_autocomplete_down(self) -> None:
         if not self._ac_visible:
             return
         self._ac_index = min(len(self._ac_items) - 1, self._ac_index + 1)
-        self.query_one("#autocomplete", ListView).index = self._ac_index
+        try:
+            self.query_one("#autocomplete", ListView).index = self._ac_index
+        except Exception:
+            pass
 
     def action_autocomplete_select(self) -> None:
         self._apply_autocomplete()

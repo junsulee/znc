@@ -401,6 +401,15 @@ class ZncApp(App):
         self._session.append(msg)
         self.query_one(MessageView).append_message(msg, self._ai_name)
 
+        # ── 최신 정보 필요 여부 자동 감지 ──────────────────────────
+        from znc.core.search_intent import detect_search_intent
+        needs_search, reason = detect_search_intent(user_text)
+        if needs_search:
+            self._write_status(f"최신 정보 자동 검색 중 ({reason})", "cyan")
+            self._do_web_search(user_text, freshness="w", auto=True)
+            return
+        # ────────────────────────────────────────────────────────────
+
         mem_items = load_all_memory()
         if mem_items:
             self._step(Stage.MEMORY, f"{len(mem_items)} items")
@@ -482,9 +491,16 @@ class ZncApp(App):
 
         if cmd == "/search":
             if not arg:
-                self._write_status("usage: /search <query>")
+                self._write_status("usage: /search <query>  [옵션: --week --day --month]")
                 return True
-            self._do_web_search(arg)
+            # --week / --day / --month 플래그 파싱
+            freshness = ""
+            query = arg
+            for flag, code in (("--week", "w"), ("--day", "d"), ("--month", "m")):
+                if flag in query:
+                    freshness = code
+                    query = query.replace(flag, "").strip()
+            self._do_web_search(query, freshness=freshness)
             return True
         if cmd == "/remember":
             k, _, v = arg.partition(":") if ":" in arg else (arg, "", arg)
@@ -539,17 +555,28 @@ class ZncApp(App):
             return True
         return False
 
-    def _do_web_search(self, query: str) -> None:
+    def _do_web_search(self, query: str, freshness: str = "", auto: bool = False) -> None:
+        """웹 검색 + 크롤링 → 컨텍스트 삽입.
+
+        auto=True 이면 사용자 메시지가 이미 세션에 추가된 상태.
+        freshness: ""=전체  "d"=하루  "w"=1주  "m"=1달
+        """
         if not self._session:
             self._start_new_session()
 
-        self._reset_process()
-        self._step(Stage.LOADING)
+        if not auto:
+            # /search 슬래시 명령 경로: 세션/프로세스 초기화
+            self._reset_process()
+            self._step(Stage.LOADING)
 
         engines = self._settings.get("search_engines", ["ddg", "naver"])
         serper_key = self._settings.get("google_serper_key", "")
         engine_label = "+".join(engines)
-        self._step(Stage.SEARCH, f'"{query}"  [{engine_label}]')
+        freshness_label = {"d": "1일", "w": "1주", "m": "1달"}.get(freshness, "전체")
+        self._step(Stage.SEARCH, f'"{query[:40]}"  [{engine_label}]  [{freshness_label}]')
+
+        from datetime import datetime as _dt
+        search_date = _dt.now().strftime("%Y-%m-%d %H:%M")
 
         def run():
             def progress(url: str, done: int, total: int) -> None:
@@ -561,6 +588,7 @@ class ZncApp(App):
                 query,
                 engines=engines,
                 google_serper_key=serper_key,
+                freshness=freshness,
                 progress_callback=progress,
             )
             if not context:
@@ -568,10 +596,13 @@ class ZncApp(App):
                 self.call_from_thread(self._write_status, "no results found", "red")
                 return
             if self._session:
-                self.call_from_thread(
-                    self._send_message_with_context,
-                    f"[web search context]\n{context}\n\n위 내용을 참고해서 '{query}' 에 대해 답해줘.",
+                # 검색 날짜를 컨텍스트 앞에 삽입해 LLM 이 언제 검색된 정보인지 인식하게 함
+                dated_context = f"[검색 날짜: {search_date}]\n{context}"
+                prompt = (
+                    f"[web search context]\n{dated_context}\n\n"
+                    f"위 검색 결과를 바탕으로 '{query}' 에 대해 답해줘."
                 )
+                self.call_from_thread(self._send_message_with_context, prompt)
 
         threading.Thread(target=run, daemon=True).start()
 

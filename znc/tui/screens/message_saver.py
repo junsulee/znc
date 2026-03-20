@@ -36,6 +36,7 @@ from znc.core.content_detector import (
     QUICK_FORMATS, EXT_DISPLAY,
     detect_and_extract, clean_content_for_ext,
 )
+from znc.core.i18n import ui as _ui
 from znc.core.models import Message
 
 
@@ -105,11 +106,12 @@ class MessageSaverScreen(ModalScreen):
     """
 
     def __init__(self, messages: list[Message], ai_name: str,
-                 save_dir: str = "") -> None:
+                 save_dir: str = "", lang: str = "ko") -> None:
         super().__init__()
         self._messages = messages
         self._ai_name = ai_name
         self._save_dir = save_dir or str(Path.home())
+        self._lang = lang
         self._selected_idx: int = -1
         self._current_ext: str = "md"
         self._current_content: str = ""
@@ -118,28 +120,23 @@ class MessageSaverScreen(ModalScreen):
         with Static(id="saver-box"):
             # ── 스크롤 가능한 콘텐츠 ──────────────────────────────
             with VerticalScroll(id="saver-scroll"):
-                yield Label("Save Message", classes="sv-title")
+                yield Label(_ui(self._lang, "save_msg_title"), classes="sv-title")
                 yield Label("─" * 58, classes="sv-sep")
-
-                yield Label("Select a message:", classes="sv-label")
+                yield Label(_ui(self._lang, "select_message"), classes="sv-label")
                 yield ListView(id="msg-list")
-
                 yield Label("", id="sv-detect", classes="sv-detect")
                 yield Label("─" * 58, classes="sv-sep")
-
-                yield Label("Format:", classes="sv-label")
+                yield Label(_ui(self._lang, "format_label"), classes="sv-label")
                 with Horizontal(id="fmt-row"):
                     for fmt in QUICK_FORMATS:
                         yield Button(f".{fmt}", id=f"fmt-{fmt}", classes="fmt-btn")
-
-                yield Label("Filename:", classes="sv-label")
+                yield Label(_ui(self._lang, "filename_label"), classes="sv-label")
                 yield Input(id="sv-filename", placeholder="filename.ext")
                 yield Label("", id="sv-path", classes="sv-path")
 
-            # ── 항상 보이는 푸터 ──────────────────────────────────
             with Horizontal(id="saver-footer"):
-                yield Button("Save", id="btn-save", variant="primary")
-                yield Button("Cancel", id="btn-cancel")
+                yield Button(_ui(self._lang, "btn_save"),   id="btn-save", variant="primary")
+                yield Button(_ui(self._lang, "btn_cancel"), id="btn-cancel")
 
     def on_mount(self) -> None:
         lv = self.query_one("#msg-list", ListView)
@@ -170,10 +167,8 @@ class MessageSaverScreen(ModalScreen):
         result = detect_and_extract(content)
         self._current_ext = result.ext
         self._current_content = clean_content_for_ext(result.content, result.ext)
-
-        # 감지 결과 표시
         self.query_one("#sv-detect", Label).update(
-            f"Detected: {result.display}  →  .{result.ext}"
+            _ui(self._lang, "detected_label", display=result.display, ext=result.ext)
         )
 
         # 포맷 버튼 활성화
@@ -224,7 +219,7 @@ class MessageSaverScreen(ModalScreen):
         visible = [m for m in self._messages if m.role in ("user", "assistant")]
         if self._selected_idx < 0 or self._selected_idx >= len(visible):
             self.query_one("#sv-detect", Label).update(
-                "[red]No message selected. Click a message first.[/]"
+                "[red]" + _ui(self._lang, "no_msg_selected") + "[/]"
             )
             return
 

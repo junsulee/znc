@@ -35,6 +35,7 @@ from textual.widgets import Label, Static
 
 from znc.backends.base import BaseBackend
 from znc.core.config import SESSIONS_DIR, ensure_dirs, load_settings
+from znc.core.i18n import ui as _ui
 from znc.core.memory import (
     add_manual, build_memory_context,
     extract_and_save_auto, load_all as load_all_memory, remove_manual,
@@ -191,47 +192,41 @@ class ZncApp(App):
         )
 
     def _update_keybind_bar(self) -> None:
-        """DOS Commander 스타일 하단 키바인딩 바.
+        """DOS Commander 스타일 하단 키바인딩 바. 언어에 따라 형식 변경."""
+        lang = self._settings.get("lang", "ko")
+        K  = "bold #0d1117 on #58a6ff"
+        D  = "dim #8b949e"
 
-        키 라벨(cyan bg) + 설명(dim) 을 연속으로 배치한다.
-        두 줄로 나뉜다:
-          윗줄: 전역 단축키
-          아랫줄: 사이드바 포커스 시 단축키 (context)
-        """
-        # Rich 마크업으로 DOS Commander 스타일 렌더링
-        # [key_bg]키[/] 설명  형태
-        K = "bold #0d1117 on #58a6ff"   # 키 라벨 배경 (파란색 하이라이트)
-        D = "dim #8b949e"                 # 설명 텍스트
-        SEP = f"[{D}] │ [/]"
+        def item(key: str) -> str:
+            label = _ui(lang, key)
+            if lang == "ko":
+                # Korean: 설명(^Key) — 텍스트 강조 없이 dim
+                return f"[{D}]{label}[/]"
+            else:
+                # English: [^Key] Desc — 키 부분 하이라이트
+                parts = label.split(" ", 1)
+                if len(parts) == 2:
+                    return f"[{K}]{parts[0]}[/][{D}]{parts[1]}[/]"
+                return f"[{D}]{label}[/]"
 
-        row1 = (
-            f"[{K}]^W[/][{D}]Save[/]{SEP}"
-            f"[{K}]^N[/][{D}]New[/]{SEP}"
-            f"[{K}]^T[/][{D}]Temp[/]{SEP}"
-            f"[{K}]^B[/][{D}]Panel[/]{SEP}"
-            f"[{K}]^S[/][{D}]Settings[/]{SEP}"
-            f"[{K}]^P[/][{D}]Persona[/]{SEP}"
-            f"[{K}]^E[/][{D}]Memory[/]{SEP}"
-            f"[{K}]^L[/][{D}]Log[/]{SEP}"
-            f"[{K}]^G[/][{D}]About[/]{SEP}"
-            f"[{K}]F1[/][{D}]Help[/]{SEP}"
-            f"[{K}]Tab[/][{D}]Focus[/]{SEP}"
-            f"[{K}]^Q[/][{D}]Quit[/]"
-        )
-        # 사이드바 포커스 컨텍스트 (두 번째 줄)
-        row2 = (
-            f"[dim #484f58]sidebar>[/]  "
-            f"[{K}]n[/][{D}]New[/]{SEP}"
-            f"[{K}]t[/][{D}]Temp[/]{SEP}"
-            f"[{K}]p[/][{D}]Project[/]{SEP}"
-            f"[{K}]/[/][{D}]Search[/]{SEP}"
-            f"[{K}]d[/][{D}]Delete[/]{SEP}"
-            f"[{K}]r[/][{D}]Rename[/]{SEP}"
-            f"[{K}]Esc[/][{D}]Close[/]"
-        )
+        SEP = f"[{D}]  [/]"
+
+        row1 = SEP.join([
+            item("kbar_save"), item("kbar_new"), item("kbar_temp"),
+            item("kbar_panel"), item("kbar_settings"), item("kbar_persona"),
+            item("kbar_memory"), item("kbar_log"), item("kbar_about"),
+            item("kbar_help"), item("kbar_focus"), item("kbar_quit"),
+        ])
 
         from znc.version import VERSION, BUILD
         ver_str = f"[dim #484f58]znc v{VERSION} #{BUILD}[/]"
+
+        sb_items = SEP.join([
+            item("kbar_sb_new"), item("kbar_sb_temp"), item("kbar_sb_proj"),
+            item("kbar_sb_search"), item("kbar_sb_del"), item("kbar_sb_rename"),
+            item("kbar_sb_esc"),
+        ])
+        row2 = f"[dim #484f58]{_ui(lang, 'kbar_sb_prefix')}[/]  {sb_items}"
 
         self.query_one("#keybind-bar", Static).update(
             f"{row1}  {ver_str}\n{row2}"
@@ -911,6 +906,7 @@ class ZncApp(App):
                 messages=self._session.messages,
                 ai_name=self._ai_name,
                 save_dir=save_dir,
+                lang=self._settings.get("lang", "ko"),
             ),
             callback,
         )

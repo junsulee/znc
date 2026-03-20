@@ -184,7 +184,10 @@ class ZncApp(App):
     def _step(self, stage: Stage, detail: str = "") -> None:
         self._ps.transition(stage, detail)
         self.query_one(StatusBar).refresh()
-        self.query_one(ProcessLog).append_step()
+        pl = self.query_one(ProcessLog)
+        pl.append_step()
+        # 활성 단계 진입/이탈 시 애니메이션 상태 갱신
+        pl._maybe_start_anim()
 
     def _step_from_thread(self, stage: Stage, detail: str = "") -> None:
         self.call_from_thread(self._step, stage, detail)

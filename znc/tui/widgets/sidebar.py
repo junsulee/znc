@@ -26,6 +26,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from znc.core.config import SESSIONS_DIR, ensure_dirs
+from znc.core.i18n import ui as _ui
 from znc.core.models import Session
 from znc.core.repository import ProjectRepository
 
@@ -86,20 +87,37 @@ class Sidebar(Widget):
         self._filter: str = ""
         self._sessions: list[Session] = []
         self._selected_name: str | None = None
-        # 마지막으로 하이라이트된 프로젝트 인덱스 (0 = no-project, 1+ = projects)
         self._project_highlight: int = 0
+        self._lang: str = "ko"
 
     def compose(self) -> ComposeResult:
         yield Static("znc", id="sidebar-title")
-        yield Static("PROJECTS", classes="section-label")
+        yield Static("PROJECTS", classes="section-label", id="label-projects")
         yield ListView(id="project-list")
-        yield Static("SESSIONS", classes="section-label")
+        yield Static("SESSIONS", classes="section-label", id="label-sessions")
         yield Input(placeholder="filter...", id="session-search")
         yield ListView(id="session-list")
 
     def on_mount(self) -> None:
         self.query_one("#session-search").display = False
+        from znc.core.config import load_settings
+        self._lang = load_settings().get("lang", "ko")
+        self._apply_lang()
         self.refresh_lists()
+
+    def _apply_lang(self) -> None:
+        try:
+            self.query_one("#label-projects", Static).update(_ui(self._lang, "projects"))
+            self.query_one("#label-sessions", Static).update(_ui(self._lang, "sessions"))
+            inp = self.query_one("#session-search", Input)
+            inp.placeholder = _ui(self._lang, "filter_hint")
+        except Exception:
+            pass
+
+    def set_lang(self, lang: str) -> None:
+        self._lang = lang
+        self._apply_lang()
+        self._reload_sessions()
 
     # ── Public API ─────────────────────────────────────────────
     def refresh_lists(self) -> None:
@@ -130,8 +148,8 @@ class Sidebar(Widget):
         self._fill_session_list()
         # SESSIONS 헤더 업데이트
         label = (
-            f"SESSIONS  [{self._current_project}]"
-            if self._current_project else "SESSIONS"
+            f"{_ui(self._lang, 'sessions')}  [{self._current_project}]"
+            if self._current_project else _ui(self._lang, "sessions")
         )
         try:
             labels = self.query("Static.section-label")

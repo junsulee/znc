@@ -129,3 +129,85 @@ def get_message(locale: str, key: str, **kwargs) -> str:
     lang_msgs = MESSAGES.get(locale, MESSAGES["en"])
     template = lang_msgs.get(key, MESSAGES["en"].get(key, key))
     return template.format(**kwargs)
+
+
+# ── TUI 위젯 전용 UI 문자열 ──────────────────────────────────────
+_UI: dict[str, dict[str, str]] = {
+    "ko": {
+        # 사이드바
+        "projects":         "프로젝트",
+        "sessions":         "세션",
+        "inbox":            "inbox",
+        "filter_hint":      "검색...",
+        "sidebar_hint":     "n:새로  t:임시  p:프로젝트  /:검색  d:삭제  r:이름",
+        # 헤더
+        "new_chat":         "새 채팅",
+        "temp_chat":        "[임시]",
+        # 입력창 플레이스홀더
+        "input_placeholder":"입력... (Enter전송 / Shift+Enter줄바꿈)",
+        # 확인 팝업
+        "confirm_title_del":"삭제 확인",
+        "confirm_del_session":"'{name}' 세션을 삭제하시겠습니까?",
+        "confirm_del_project":"'{name}' 프로젝트와 모든 세션을 삭제하시겠습니까?",
+        "btn_delete":       "삭제",
+        "btn_cancel":       "취소",
+        "btn_save":         "저장",
+        "btn_close":        "닫기",
+        # 상태 메시지
+        "deleted":          "삭제됨: {name}",
+        "saved":            "저장됨: {path}",
+        "stopped":          "중단됨",
+        "no_messages":      "저장할 메시지가 없습니다",
+        "no_session":       "세션이 없습니다",
+        # 설정 탭
+        "tab_ai":           "AI 백엔드",
+        "tab_general":      "일반",
+        "setting_lang":     "언어",
+        "setting_theme":    "테마",
+        "setting_engines":  "검색 엔진",
+        "theme_dark":       "다크",
+        "theme_light":      "라이트",
+    },
+    "en": {
+        # sidebar
+        "projects":         "PROJECTS",
+        "sessions":         "SESSIONS",
+        "inbox":            "inbox",
+        "filter_hint":      "filter...",
+        "sidebar_hint":     "n:new  t:temp  p:project  /:search  d:del  r:rename",
+        # header
+        "new_chat":         "new chat",
+        "temp_chat":        "[temp]",
+        # input placeholder
+        "input_placeholder":"message... (Enter=send / Shift+Enter=newline)",
+        # confirm dialogs
+        "confirm_title_del":"Confirm Delete",
+        "confirm_del_session":"Delete session '{name}'?",
+        "confirm_del_project":"Delete project '{name}' and all its sessions?",
+        "btn_delete":       "Delete",
+        "btn_cancel":       "Cancel",
+        "btn_save":         "Save",
+        "btn_close":        "Close",
+        # status messages
+        "deleted":          "deleted: {name}",
+        "saved":            "saved: {path}",
+        "stopped":          "stopped",
+        "no_messages":      "no messages to save",
+        "no_session":       "no active session",
+        # settings tabs
+        "tab_ai":           "AI Backend",
+        "tab_general":      "General",
+        "setting_lang":     "Language",
+        "setting_theme":    "Theme",
+        "setting_engines":  "Search Engines",
+        "theme_dark":       "Dark",
+        "theme_light":      "Light",
+    },
+}
+
+
+def ui(lang: str, key: str, **kwargs) -> str:
+    """TUI 위젯용 UI 문자열 반환."""
+    d = _UI.get(lang, _UI["en"])
+    template = d.get(key, _UI["en"].get(key, key))
+    return template.format(**kwargs) if kwargs else template

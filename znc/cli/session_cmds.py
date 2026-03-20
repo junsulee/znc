@@ -71,7 +71,9 @@ def cmd_new(save, project, auto_title, system):
     )
 
     backend = BaseBackend.from_settings(settings)
-    run_chat_loop(session, backend, ai_name, lang)
+    from znc.core.persona import load_default_persona
+    persona = load_default_persona()
+    run_chat_loop(session, backend, ai_name, lang, persona=persona)
 
     sessions_dir = _resolve_sessions_dir(project)
 
@@ -126,7 +128,9 @@ def cmd_load(name, project, view):
     )
 
     backend = BaseBackend.from_settings(settings)
-    run_chat_loop(session, backend, ai_name, lang)
+    from znc.core.persona import load_default_persona
+    persona = load_default_persona()
+    run_chat_loop(session, backend, ai_name, lang, persona=persona)
 
     path = session.save(sessions_dir)
     click.secho(get_message(lang, "session_saved", path=path), fg="cyan")

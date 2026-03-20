@@ -123,7 +123,7 @@ class InputBar(Widget):
         self.query_one("#input-field", Input).value = ""
         self.post_message(self.Submitted(text))
 
-    # ── 자동완성 (ListView remove+mount 패턴) ─────────────────────
+    # ── 자동완성 (clear+append 패턴 — ListItem에 ID 없음) ────────────
     def _show_autocomplete(self, val: str) -> None:
         prefix = val.lower()
         matches = [(cmd, desc) for cmd, desc in SLASH_COMMANDS if cmd.startswith(prefix)]
@@ -134,21 +134,17 @@ class InputBar(Widget):
         self._ac_items = matches
         self._ac_index = 0
 
-        # 기존 ListView 제거 후 새로 마운트 (DuplicateIds 방지)
-        try:
-            old = self.query_one("#autocomplete", ListView)
-            old.remove()
-        except Exception:
-            pass
-
-        items = [
-            ListItem(Label(f"[bold]{cmd}[/] [dim]{desc}[/]", markup=True))
-            for cmd, desc in matches
-        ]
-        new_lv = ListView(*items, id="autocomplete")
-        inp = self.query_one("#input-field", Input)
-        self.mount(new_lv, after=inp)
-        new_lv.display = True
+        # 기존 ListView 를 재사용하고 clear()+append() 로 내용만 교체.
+        # remove()+mount() 는 remove() 가 비동기라 구 위젯 제거 전에
+        # id='autocomplete' 를 가진 신 위젯이 등록되어 DuplicateIds 발생.
+        # ListItem 에 ID 를 부여하지 않으면 _ensure_unique_id 를 건너뛰므로 안전.
+        lv = self.query_one("#autocomplete", ListView)
+        lv.clear()
+        for cmd, desc in matches:
+            lv.append(ListItem(
+                Label(f"[bold]{cmd}[/] [dim]{desc}[/]", markup=True)
+            ))
+        lv.display = True
         self._ac_visible = True
 
     def _hide_autocomplete(self) -> None:

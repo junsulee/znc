@@ -14,6 +14,7 @@ from textual.widgets import Button, Input, Label, Static
 _HOTKEYS = [
     ("Ctrl+N",   "새 채팅 시작"),
     ("Ctrl+T",   "임시 채팅 (저장 안 함)"),
+    ("Ctrl+B",   "사이드바 숨기기/보이기 토글"),
     ("Ctrl+S",   "설정 팝업"),
     ("Ctrl+P",   "Persona 관리"),
     ("Ctrl+E",   "메모리 관리"),

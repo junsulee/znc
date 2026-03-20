@@ -53,9 +53,9 @@ class AboutScreen(ModalScreen):
         engines = "+".join(cfg.get("search_engines", ["ddg", "naver"]))
 
         with Static(id="about-box"):
-            yield Label("znc — 개인용 AI CLI", classes="ab-logo")
+            yield Label("znc  —  Personal AI CLI", classes="ab-logo")
             yield Label(
-                f"버전 {VERSION}   빌드 #{BUILD}",
+                f"v{VERSION}  build #{BUILD}",
                 classes="ab-ver",
             )
             yield Label("─" * 46, classes="ab-sep")
@@ -73,19 +73,20 @@ class AboutScreen(ModalScreen):
 
             yield Label("FEATURES", classes="ab-label")
             for feat in [
-                "대화 저장 및 프로젝트 단위 관리",
-                "Persona 세미튜닝 (시스템 프롬프트 + Few-shot)",
-                "장기 메모리 (수동 / AI 자동 추출)",
-                "웹 검색 + 크롤링 (DuckDuckGo · Naver · Google)",
-                "스트리밍 출력 + 프로세스 상태 표시",
-                "임시 채팅 모드",
+                "Session save & project management",
+                "Persona semi-tuning (system prompt + few-shot)",
+                "Long-term memory (manual / AI auto-extract)",
+                "Web search + crawl (DuckDuckGo · Naver · Google)",
+                "Streaming output + process status display",
+                "Temporary chat mode",
+                "Auto search intent detection",
             ]:
-                yield Label(f"  ✓  {feat}", classes="ab-feat-ok")
+                yield Label(f"  v  {feat}", classes="ab-feat-ok")
 
             yield Label("─" * 46, classes="ab-sep")
 
             yield Label(
-                "F1 커맨드 팔레트  |  Ctrl+G About  |  github.com/junsulee/znc",
+                "F1: help   ^G: about   github.com/junsulee/znc",
                 classes="ab-label",
             )
 

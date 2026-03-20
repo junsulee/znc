@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "znc"
-version = "0.3.0"
+version = "0.3.1"
 description = "개인용 AI CLI — 대화 저장, 프로젝트 단위 관리, 다중 백엔드 지원"
 readme = "README.md"
 license = { text = "MIT" }

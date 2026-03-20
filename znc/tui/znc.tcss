@@ -130,14 +130,6 @@ Screen {
     text-align: right;
 }
 
-#message-view {
-    height: 1fr;
-    background: $bg;
-    padding: 1 2;
-    scrollbar-background: $bg-panel;
-    scrollbar-color: $border;
-}
-
 /* ── StatusBar / ProcessLog ─────────────────────── */
 #status-bar {
     height: 1;

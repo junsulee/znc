@@ -6,23 +6,15 @@ from __future__ import annotations
 import sys
 import unicodedata
 from datetime import datetime
-from typing import Optional
 
 import click
 
 from znc.backends.base import BaseBackend
 from znc.core.models import Session
+from znc.core.text_utils import sanitize_korean
 
 
 def _nfc(text: str) -> str:
-    """
-    Unicode NFC 정규화.
-
-    SSH 클라이언트 중 일부는 한글을 NFD(자모 분리형) 코드포인트로 전송한다.
-      예) U+1100(ᄀ) + U+1161(ᅡ) → NFC 후 U+AC00(가)
-
-    Python unicodedata.normalize('NFC', ...) 가 이를 자동으로 조합한다.
-    """
     return unicodedata.normalize("NFC", text)
 
 
@@ -67,11 +59,8 @@ def safe_input(prompt: str) -> str:
     # ── NFC 정규화 (자소분리 수정) ──────────────────────────────────
     line = _nfc(line)
 
-    # ── 중복 자모 제거 ──────────────────────────────────────────────
-    # 일부 IME가 미리보기 초성(ㄱ~ㅎ, U+3131~U+314E)을 먼저 보낸 뒤
-    # 백스페이스 없이 조합 완성 음절을 추가 전송하는 경우,
-    # "ㄱ가" 처럼 자모 + 음절이 연속 등장한다. 이를 제거한다.
-    line = _remove_leading_jamo_duplicates(line)
+    # IME ghost 제거: 자소분리·중복 자모·조합 중간 상태 수정
+    line = sanitize_korean(line)
 
     return line
 

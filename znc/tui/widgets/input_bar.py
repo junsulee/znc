@@ -17,6 +17,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView
 
+from znc.core.text_utils import sanitize_korean
+
 
 SLASH_COMMANDS = [
     ("/search",   "<query>   웹 검색 후 결과 컨텍스트 삽입"),
@@ -35,43 +37,9 @@ def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-_COMPAT_JAMO_START = 0x3131
-_COMPAT_JAMO_END   = 0x318E
-_SYLLABLE_START    = 0xAC00
-_SYLLABLE_END      = 0xD7A3
-_INITIAL_CONSONANTS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
-
-
-def _syllable_initial(ch: str) -> str:
-    cp = ord(ch)
-    if not (_SYLLABLE_START <= cp <= _SYLLABLE_END):
-        return ""
-    idx = (cp - _SYLLABLE_START) // (21 * 28)
-    return _INITIAL_CONSONANTS[idx] if idx < len(_INITIAL_CONSONANTS) else ""
-
-
-def _remove_jamo_duplicates(text: str) -> str:
-    """호환 자모 + 해당 초성 음절 중복 제거 (IME 미리보기 잔재)."""
-    if len(text) < 2:
-        return text
-    result = list(text)
-    i = 0
-    while i < len(result) - 1:
-        cur, nxt = result[i], result[i + 1]
-        if (
-            _COMPAT_JAMO_START <= ord(cur) <= _COMPAT_JAMO_END
-            and _SYLLABLE_START <= ord(nxt) <= _SYLLABLE_END
-            and cur == _syllable_initial(nxt)
-        ):
-            result.pop(i)
-        else:
-            i += 1
-    return "".join(result)
-
-
 def _sanitize(text: str) -> str:
-    """NFC 정규화 + 중복 자모 제거."""
-    return _remove_jamo_duplicates(_nfc(text))
+    """NFC 정규화 + IME ghost 제거."""
+    return sanitize_korean(text)
 
 
 class InputBar(Widget):

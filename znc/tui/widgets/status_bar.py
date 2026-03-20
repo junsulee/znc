@@ -1,14 +1,10 @@
 """
 StatusBar — 레이어1.
 
-채팅창 하단, 입력창 위에 고정된 1줄짜리 상태 바.
+스피너 옆에 현재 단계를 shimmer 애니메이션으로 표시.
+언어 설정(ko/en)에 따라 단계 레이블 한/영 전환.
 
-레이아웃 (활성 시):
-  ⠸  thinking  detail...   prep → mem → thinking    2.1s  [^L]▼  [Esc] stop
-  ^   ^         ^           ^ 최근 3단계 브레드크럼  ^              ^
-  스피너        현재단계     (LogPanel 접힘 시만 표시)
-
-LogPanel 펼침 시 브레드크럼 숨김 (이미 상세 로그가 보이므로).
+IDLE 상태에서도 [^L] 힌트를 표시해 상태 바가 항상 보임.
 """
 from __future__ import annotations
 
@@ -16,24 +12,63 @@ from rich.text import Text
 from textual.timer import Timer
 from textual.widget import Widget
 
-from znc.tui.process_state import ProcessState, Stage, STAGE_LABEL, STAGE_STYLE
 from znc.tui.animation import shimmer, SHIMMER_STAGES
+from znc.tui.process_state import ProcessState, Stage, STAGE_STYLE
 
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 _ACTIVE_STAGES = {
     Stage.LOADING, Stage.MEMORY, Stage.SEARCH,
     Stage.CRAWL, Stage.THINKING, Stage.GENERATING,
 }
-# 브레드크럼에 표시할 축약 레이블
-_CRUMB_LABEL: dict[Stage, str] = {
-    Stage.LOADING:    "prep",
-    Stage.MEMORY:     "mem",
-    Stage.SEARCH:     "search",
-    Stage.CRAWL:      "crawl",
-    Stage.THINKING:   "think",
-    Stage.GENERATING: "gen",
-    Stage.DONE:       "done",
-    Stage.ERROR:      "err",
+
+# 단계 레이블: lang → Stage → label
+_STAGE_LABEL: dict[str, dict[Stage, str]] = {
+    "ko": {
+        Stage.IDLE:       "",
+        Stage.LOADING:    "준비 중",
+        Stage.MEMORY:     "메모리",
+        Stage.SEARCH:     "검색 중",
+        Stage.CRAWL:      "크롤링",
+        Stage.THINKING:   "생각 중",
+        Stage.GENERATING: "생성 중",
+        Stage.DONE:       "완료",
+        Stage.ERROR:      "오류",
+    },
+    "en": {
+        Stage.IDLE:       "",
+        Stage.LOADING:    "preparing",
+        Stage.MEMORY:     "memory",
+        Stage.SEARCH:     "searching",
+        Stage.CRAWL:      "crawling",
+        Stage.THINKING:   "thinking",
+        Stage.GENERATING: "generating",
+        Stage.DONE:       "done",
+        Stage.ERROR:      "error",
+    },
+}
+
+# 브레드크럼 축약 레이블
+_CRUMB_LABEL: dict[str, dict[Stage, str]] = {
+    "ko": {
+        Stage.LOADING:    "준비",
+        Stage.MEMORY:     "메모리",
+        Stage.SEARCH:     "검색",
+        Stage.CRAWL:      "크롤",
+        Stage.THINKING:   "생각",
+        Stage.GENERATING: "생성",
+        Stage.DONE:       "완료",
+        Stage.ERROR:      "오류",
+    },
+    "en": {
+        Stage.LOADING:    "prep",
+        Stage.MEMORY:     "mem",
+        Stage.SEARCH:     "search",
+        Stage.CRAWL:      "crawl",
+        Stage.THINKING:   "think",
+        Stage.GENERATING: "gen",
+        Stage.DONE:       "done",
+        Stage.ERROR:      "err",
+    },
 }
 
 
@@ -57,9 +92,16 @@ class StatusBar(Widget):
         self._ps = process_state
         self._timer: Timer | None = None
         self._log_visible = False
+        self._lang: str = "ko"
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(0.1, self._on_tick)
+        # 설정에서 현재 언어 읽기
+        try:
+            from znc.core.config import load_settings
+            self._lang = load_settings().get("lang", "ko")
+        except Exception:
+            pass
 
     def _on_tick(self) -> None:
         self._tick = (self._tick + 1) % len(_SPINNER)
@@ -73,21 +115,28 @@ class StatusBar(Widget):
         self._log_visible = visible
         self.refresh()
 
+    def set_lang(self, lang: str) -> None:
+        self._lang = lang
+        self.refresh()
+
     def render(self) -> Text:
         ps = self._ps
         stage = ps.stage
+        lang = self._lang
+
         log_marker = (
             "[dim #484f58][^L]▼[/]"
             if not self._log_visible
             else "[#58a6ff][^L]▲[/]"
         )
 
+        # IDLE: 힌트만 표시
         if stage == Stage.IDLE:
             t = Text()
             t.append_text(Text.from_markup(log_marker))
             return t
 
-        label = STAGE_LABEL.get(stage, stage.value)
+        label = _STAGE_LABEL.get(lang, _STAGE_LABEL["en"]).get(stage, stage.value)
         style = STAGE_STYLE.get(stage, "")
         active = stage in _ACTIVE_STAGES
 
@@ -99,31 +148,31 @@ class StatusBar(Widget):
         else:
             t.append("   ")
 
-        # 현재 단계 — 활성이면 shimmer 애니메이션
+        # 단계 레이블 — 활성이면 shimmer, 완료/오류는 정적
         if stage in SHIMMER_STAGES:
             t.append_text(shimmer(label, self._tick, style))
         else:
-            t.append(f"{label}", style=f"bold {style}")
+            t.append(label, style=f"bold {style}")
 
         # 세부 내용
         if ps.detail:
             detail = ps.detail[:55] + "..." if len(ps.detail) > 55 else ps.detail
             t.append(f"  {detail}", style="#484f58")
 
-        # 브레드크럼: 로그 접힌 상태에서만 최근 단계 요약 표시
+        # 브레드크럼: 로그 패널 닫혀있을 때 최근 단계 요약
         if not self._log_visible and ps.steps:
+            crumb_map = _CRUMB_LABEL.get(lang, _CRUMB_LABEL["en"])
             crumbs = [
-                _CRUMB_LABEL.get(s.stage, "")
+                crumb_map.get(s.stage, "")
                 for s in ps.steps
-                if s.stage not in {Stage.IDLE} and _CRUMB_LABEL.get(s.stage)
+                if s.stage not in {Stage.IDLE} and crumb_map.get(s.stage)
             ]
-            # 중복 제거 (연속 동일 단계)
-            deduped = []
+            deduped: list[str] = []
             for c in crumbs:
                 if not deduped or deduped[-1] != c:
                     deduped.append(c)
             if deduped:
-                crumb_str = " → ".join(deduped[-4:])   # 최대 4단계
+                crumb_str = " → ".join(deduped[-4:])
                 t.append(f"   {crumb_str}", style="dim #30363d")
 
         # 경과 시간

@@ -1144,13 +1144,20 @@ class ZncApp(App):
                 self._settings = cfg
                 self._reload_backend()
                 self._update_header()
-                # 언어 변경 → 사이드바 레이블 갱신
                 new_lang = cfg.get("lang", "ko")
                 try:
                     self.query_one(Sidebar).set_lang(new_lang)
                 except Exception:
                     pass
-                # 테마 변경
+                try:
+                    from znc.tui.widgets.status_bar import StatusBar
+                    self.query_one(StatusBar).set_lang(new_lang)
+                except Exception:
+                    pass
+                try:
+                    self.query_one(ProcessLog).set_lang(new_lang)
+                except Exception:
+                    pass
                 theme = cfg.get("theme", "dark")
                 self.dark = (theme == "dark")
         self.push_screen(SettingsScreen(), callback)

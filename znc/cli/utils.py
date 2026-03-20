@@ -212,9 +212,16 @@ def run_chat_loop(
 
             if cmd == "/search":
                 if not arg:
-                    click.secho("usage: /search <검색어>", fg="yellow")
+                    click.secho("usage: /search <검색어> [--week|--day|--month]", fg="yellow")
                     continue
-                _cli_search(arg, engines, serper_key, session, backend, ai_name)
+                freshness = ""
+                query = arg
+                for flag, code in (("--week", "w"), ("--day", "d"), ("--month", "m")):
+                    if flag in query:
+                        freshness = code
+                        query = query.replace(flag, "").strip()
+                _cli_search(query, engines, serper_key, session, backend, ai_name,
+                            freshness=freshness)
                 continue
 
             if cmd == "/remember":
@@ -246,6 +253,16 @@ def run_chat_loop(
 
         from znc.core.models import Message
         from znc.core.memory import build_memory_context
+
+        # ── 최신 정보 필요 여부 자동 감지 ───────────────────────────
+        from znc.core.search_intent import detect_search_intent
+        needs_search, reason = detect_search_intent(user_input)
+        if needs_search:
+            click.secho(f"  [자동 검색] {reason}", fg="cyan", dim=True)
+            _cli_search(user_input, engines, serper_key, session, backend, ai_name,
+                        freshness="w")
+            continue
+        # ─────────────────────────────────────────────────────────────
 
         # 메모리 컨텍스트 삽입
         mem_ctx = build_memory_context(user_input)
@@ -290,13 +307,16 @@ def _cli_search(
     session: Session,
     backend: BaseBackend,
     ai_name: str,
+    freshness: str = "",
 ) -> None:
     """웹 검색 → 크롤링 → 컨텍스트 삽입 → 모델 응답."""
     from znc.core.web_search import search_and_crawl
     from znc.core.models import Message
+    from datetime import datetime as _dt
 
     engine_label = "+".join(engines)
-    click.secho(f'검색 중 [{engine_label}]: "{query}"', fg="yellow")
+    freshness_label = {"d": "1일", "w": "1주", "m": "1달"}.get(freshness, "전체")
+    click.secho(f'검색 중 [{engine_label}][{freshness_label}]: "{query}"', fg="yellow")
 
     def progress(url: str, done: int, total: int) -> None:
         if url:
@@ -307,6 +327,7 @@ def _cli_search(
         query,
         engines=engines,
         google_serper_key=serper_key,
+        freshness=freshness,
         progress_callback=progress,
     )
 
@@ -314,10 +335,11 @@ def _cli_search(
         click.secho("검색 결과가 없습니다.", fg="red")
         return
 
-    click.secho(f"  결과 {len(results)}건 수집 완료", fg="cyan")
+    search_date = _dt.now().strftime("%Y-%m-%d %H:%M")
+    click.secho(f"  결과 {len(results)}건 수집 완료 ({search_date})", fg="cyan")
 
-    # 검색 컨텍스트를 포함한 프롬프트 구성
     context_prompt = (
+        f"[검색 날짜: {search_date}]\n"
         f"[웹 검색 컨텍스트: {query}]\n{context}\n\n"
         f"위 검색 결과를 바탕으로 '{query}' 에 대해 답해줘."
     )

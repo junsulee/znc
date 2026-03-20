@@ -55,12 +55,18 @@ class SearchResult:
 # ---------------------------------------------------------------------------
 # DuckDuckGo
 # ---------------------------------------------------------------------------
-def _search_ddg(query: str, max_results: int) -> list[SearchResult]:
-    """DuckDuckGo HTML POST 검색."""
+def _search_ddg(query: str, max_results: int, freshness: str = "") -> list[SearchResult]:
+    """DuckDuckGo HTML POST 검색.
+
+    freshness: ""=전체  "d"=하루  "w"=1주  "m"=1달
+    """
+    data: dict = {"q": query, "kl": "kr-ko"}
+    if freshness:
+        data["df"] = freshness
     try:
         resp = requests.post(
             "https://html.duckduckgo.com/html/",
-            data={"q": query, "kl": "kr-ko"},
+            data=data,
             headers=HEADERS,
             timeout=REQUEST_TIMEOUT,
         )
@@ -104,12 +110,21 @@ def _ddg_extract_url(href: str) -> str:
 # ---------------------------------------------------------------------------
 # Naver
 # ---------------------------------------------------------------------------
-def _search_naver(query: str, max_results: int) -> list[SearchResult]:
-    """Naver 웹탭(webkr) HTML 크롤링."""
+def _search_naver(query: str, max_results: int, freshness: str = "") -> list[SearchResult]:
+    """Naver 웹탭(webkr) HTML 크롤링.
+
+    freshness: ""=전체  "d"=하루  "w"=1주  "m"=1달
+    """
+    params: dict = {"query": query, "where": "webkr"}
+    if freshness:
+        # so:r = 최신순, p:1w/p:1d/p:1m = 기간
+        period = {"d": "1d", "w": "1w", "m": "1m"}.get(freshness, "")
+        if period:
+            params["nso"] = f"p:{period},so:r"
     try:
         resp = requests.get(
             "https://search.naver.com/search.naver",
-            params={"query": query, "where": "webkr"},
+            params=params,
             headers={**HEADERS, "Referer": "https://www.naver.com"},
             timeout=REQUEST_TIMEOUT,
         )
@@ -261,6 +276,7 @@ def search(
     engines: list[str] | None = None,
     max_results: int = MAX_RESULTS,
     google_serper_key: str = "",
+    freshness: str = "",
 ) -> list[SearchResult]:
     """
     여러 엔진에서 검색 후 중복 URL 제거한 결과 반환.
@@ -268,6 +284,7 @@ def search(
     engines: ["ddg", "naver", "google"] 순서대로 시도.
              기본값: ["ddg", "naver"]
              "google"은 google_serper_key 가 있을 때만 동작.
+    freshness: ""=전체  "d"=하루  "w"=1주  "m"=1달
     """
     if engines is None:
         engines = ["ddg", "naver"]
@@ -282,9 +299,9 @@ def search(
             break
 
         if engine == "ddg":
-            partial = _search_ddg(query, remaining)
+            partial = _search_ddg(query, remaining, freshness)
         elif engine == "naver":
-            partial = _search_naver(query, remaining)
+            partial = _search_naver(query, remaining, freshness)
         elif engine == "google":
             if google_serper_key:
                 partial = _search_google_serper(query, remaining, google_serper_key)
@@ -304,15 +321,17 @@ def search_and_crawl(
     engines: list[str] | None = None,
     max_results: int = MAX_RESULTS,
     google_serper_key: str = "",
+    freshness: str = "",
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[list[SearchResult], str]:
     """
     검색 + 크롤링 일괄 수행.
     progress_callback(url, done, total) 으로 진행 상황 전달.
+    freshness: ""=전체  "d"=하루  "w"=1주  "m"=1달
     반환: (results, context_text)
     """
     results = search(query, engines=engines, max_results=max_results,
-                     google_serper_key=google_serper_key)
+                     google_serper_key=google_serper_key, freshness=freshness)
     if not results:
         return [], ""
 

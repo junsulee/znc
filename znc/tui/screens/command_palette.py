@@ -35,17 +35,18 @@ _HOTKEYS = [
 ]
 
 _SLASH = [
-    ("/search <query>",    "웹 검색 후 AI 에게 컨텍스트 전달"),
-    ("/remember <k>:<v>",  "장기 메모리 저장"),
-    ("/forget <key>",      "장기 메모리 삭제"),
-    ("/memory",            "메모리 관리 팝업 열기"),
-    ("/persona <name>",    "페르소나 즉시 전환"),
-    ("/clear",             "현재 대화 초기화"),
-    ("/save <name>",       "세션 저장"),
-    ("/export <file>",     "세션 텍스트 내보내기"),
-    ("/settings",          "설정 팝업 열기"),
-    ("/about",             "znc 정보 팝업"),
-    ("/delete",            "현재 세션 삭제"),
+    ("/search <query>",         "웹 검색 (옵션: --week --day --month)"),
+    ("/search <q> --week",      "최근 1주일 결과만 검색"),
+    ("/remember <k>:<v>",       "장기 메모리 저장"),
+    ("/forget <key>",           "장기 메모리 삭제"),
+    ("/memory",                 "메모리 관리 팝업 열기"),
+    ("/persona <name>",         "페르소나 즉시 전환"),
+    ("/clear",                  "현재 대화 초기화"),
+    ("/save <name>",            "세션 저장"),
+    ("/export <file>",          "세션 텍스트 내보내기"),
+    ("/settings",               "설정 팝업 열기"),
+    ("/about",                  "znc 정보 팝업"),
+    ("/delete",                 "현재 세션 삭제"),
 ]
 
 

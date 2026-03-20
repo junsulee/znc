@@ -60,24 +60,15 @@ def _is_ghost(a: str, b: str, after: str | None) -> bool:
         return False
 
     # Case 2: 종성 없음 → 종성 있음  (너→넌)
+    # 동일 초+중성 전제로 안전한 케이스
     if ap[2] == 0 and bp[2] != 0:
         return True
 
-    # Case 3: 종성 있음 → 종성 없음  (넌→너)
-    # 단순 종성만, 다음 문자 초성과 일치할 때만 제거
-    if ap[2] != 0 and bp[2] == 0:
-        jong = _JONG[ap[2]]
-        if not jong or len(jong) > 1:   # 복잡 종성(ㄳ,ㄶ 등) 제외
-            return False
-        cho_idx = _CHO_IDX.get(jong, -1)
-        if cho_idx == -1 or after is None:
-            return False
-        after_p = _syl(after)
-        if after_p:
-            return after_p[0] == cho_idx
-        if _is_jamo(after):
-            return after == jong
-        return False
+    # Case 3 (종성 있음 → 종성 없음) 은 오탐 위험으로 제거.
+    # "안아내" → "아내" 같이 정상 한국어를 훼손하는 false positive 발생.
+    # Case 1+2 만으로도 대부분의 SSH ghost 를 처리할 수 있다.
+
+    return False
 
     return False
 

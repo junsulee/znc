@@ -56,11 +56,11 @@ def safe_input(prompt: str) -> str:
 
     line = line.rstrip("\r\n").strip()
 
-    # ── NFC 정규화 (자소분리 수정) ──────────────────────────────────
+    # NFC 정규화만 적용.
+    # readline(cooked mode)으로 받은 텍스트는 IME 가 이미 완성형으로 조합했으므로
+    # ghost 패턴이 없다. ghost 제거는 특정 SSH 클라이언트에서 미조합 상태를
+    # 전송할 때만 필요하며, 오탐 위험이 있어 여기서는 사용하지 않는다.
     line = _nfc(line)
-
-    # IME ghost 제거: 자소분리·중복 자모·조합 중간 상태 수정
-    line = sanitize_korean(line)
 
     return line
 

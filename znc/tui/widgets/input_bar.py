@@ -1,11 +1,15 @@
 """
-입력창 위젯 — 다중 줄 + /명령어 자동완성 + 전송/중단 버튼.
+입력창 위젯 — Input 위젯 기반 (한국어 IME 호환성 최대화).
 
-키 동작:
-  Enter        → 전송 (단일·다중 줄 공통)
-  Ctrl+Enter   → 줄바꿈 삽입
-  ▲ 버튼       → 전송
-  ■ 버튼       → 스트리밍 중단 (streaming=True 시)
+TextArea 는 Textual 내부에서 모든 키를 raw 처리하므로
+시스템 IME 조합 과정과 충돌해 한국어가 깨진다.
+Input 위젯은 터미널 IME 와 호환성이 훨씬 높다.
+
+다중 줄 지원:
+  이전 줄들을 별도 Static 에 표시하고 Input 에서 현재 줄 입력.
+  Shift+Enter / Ctrl+Enter / Alt+Enter → 현재 줄을 버퍼에 추가
+  Enter → 버퍼 + 현재 줄 합쳐서 제출
+  ↵ 버튼 → 줄바꿈 (Shift/Ctrl+Enter 안 되는 터미널용 fallback)
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Label, ListItem, ListView, TextArea
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from znc.core.text_utils import sanitize_korean
 
@@ -36,58 +40,21 @@ SLASH_COMMANDS = [
 ]
 
 
-class ChatInput(TextArea):
-    """다중 줄 지원 채팅 입력창.
-
-    Enter        → Submitted 메시지 발행 (전송)
-    Ctrl+Enter   → 줄바꿈 삽입
-    """
-
-    BINDINGS = [
-        Binding("enter",       "submit_text",  priority=True, show=False),
-        Binding("shift+enter", "newline_text", priority=True, show=False),
-        Binding("ctrl+enter",  "newline_text", priority=True, show=False),
-        Binding("meta+enter",  "newline_text", priority=True, show=False),  # Alt+Enter
-    ]
-
-    DEFAULT_CSS = """
-    ChatInput {
-        background: #0d1117;
-        border: none;
-        color: #e6edf3;
-        padding: 0 1;
-        height: auto;
-        max-height: 7;
-    }
-    ChatInput .text-area--cursor-line {
-        background: #1c2128;
-    }
-    ChatInput .text-area--gutter {
-        display: none;
-        width: 0;
-    }
-    ChatInput:focus {
-        border: none;
-    }
-    """
-
-    class Submitted(Message):
-        pass
-
-    def action_submit_text(self) -> None:
-        self.post_message(self.Submitted())
-
-    def action_newline_text(self) -> None:
-        self.insert("\n")
+def _sanitize(text: str) -> str:
+    """제출 시점 최종 정리 — NFC + case1/2 ghost 제거."""
+    return sanitize_korean(text)
 
 
 class InputBar(Widget):
-    """입력창 컨테이너."""
+    """입력창 — Input 기반 다중 줄 지원."""
 
     BINDINGS = [
-        Binding("up",  "autocomplete_up",     show=False),
-        Binding("down","autocomplete_down",   show=False),
-        Binding("tab", "autocomplete_select", show=False),
+        Binding("shift+enter", "newline",           priority=True, show=False),
+        Binding("ctrl+enter",  "newline",           priority=True, show=False),
+        Binding("meta+enter",  "newline",           priority=True, show=False),
+        Binding("up",          "autocomplete_up",   show=False),
+        Binding("down",        "autocomplete_down", show=False),
+        Binding("tab",         "autocomplete_select", show=False),
     ]
 
     streaming: reactive[bool] = reactive(False)
@@ -105,24 +72,22 @@ class InputBar(Widget):
         self._ac_visible = False
         self._ac_index = 0
         self._ac_items: list[tuple[str, str]] = []
+        self._prev_lines: list[str] = []   # 누적된 이전 줄들
 
     def compose(self) -> ComposeResult:
+        yield Static("", id="multiline-preview")
         with Horizontal(id="input-row"):
-            yield ChatInput(
-                id="input-field",
-                language=None,
-                show_line_numbers=False,
-                soft_wrap=True,
-            )
+            yield Input(placeholder="> ", id="input-field")
             yield Button("↵", id="newline-btn", classes="newline-btn")
             yield Button("▲", id="action-btn", classes="--send")
         yield ListView(id="autocomplete")
 
     def on_mount(self) -> None:
         self.query_one("#autocomplete").display = False
+        self.query_one("#multiline-preview").display = False
 
     def focus_input(self) -> None:
-        self.query_one("#input-field", ChatInput).focus()
+        self.query_one("#input-field", Input).focus()
 
     # ── 스트리밍 상태 → 버튼 전환 ────────────────────────────
     def watch_streaming(self, value: bool) -> None:
@@ -141,21 +106,41 @@ class InputBar(Widget):
 
     # ── 버튼 클릭 ─────────────────────────────────────────────
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "newline-btn":
-            ta = self.query_one("#input-field", ChatInput)
-            ta.insert("\n")
-            ta.focus()
-            return
-        if event.button.id != "action-btn":
-            return
-        if self.streaming:
-            self.post_message(self.StopRequested())
-        else:
-            self._submit_current()
+        bid = event.button.id
+        if bid == "newline-btn":
+            self._add_line()
+        elif bid == "action-btn":
+            if self.streaming:
+                self.post_message(self.StopRequested())
+            else:
+                self._submit_current()
 
-    # ── Enter 전송 (ChatInput.Submitted) ─────────────────────
-    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
-        event.stop()
+    # ── 줄바꿈 (Shift/Ctrl/Alt+Enter, ↵ 버튼) ────────────────
+    def action_newline(self) -> None:
+        self._add_line()
+
+    def _add_line(self) -> None:
+        inp = self.query_one("#input-field", Input)
+        current = inp.value
+        # 빈 줄도 허용 (의도적 빈 줄 삽입)
+        self._prev_lines.append(current)
+        inp.value = ""
+        self._update_preview()
+
+    def _update_preview(self) -> None:
+        preview = self.query_one("#multiline-preview", Static)
+        if self._prev_lines:
+            lines = "\n".join(
+                f"  {l}" if l else ""
+                for l in self._prev_lines
+            )
+            preview.update(lines)
+            preview.display = True
+        else:
+            preview.display = False
+
+    # ── Enter 제출 ────────────────────────────────────────────
+    def on_input_submitted(self, event: Input.Submitted) -> None:
         if self._ac_visible:
             self._apply_autocomplete()
             return
@@ -163,19 +148,25 @@ class InputBar(Widget):
         self._submit_current()
 
     def _submit_current(self) -> None:
-        ta = self.query_one("#input-field", ChatInput)
-        text = sanitize_korean(ta.text.strip())
+        inp = self.query_one("#input-field", Input)
+        current = inp.value
+        all_lines = self._prev_lines + [current]
+        # 최소 한 줄 이상 내용 있어야 제출
+        full_raw = "\n".join(all_lines)
+        text = _sanitize(full_raw.strip())
         if not text:
             return
-        ta.clear()
+        inp.value = ""
+        self._prev_lines = []
+        self._update_preview()
         self.post_message(self.Submitted(text))
 
-    # ── 텍스트 변경 → 자동완성 체크 ──────────────────────────
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        text = event.text_area.text
-        # 단일 줄 + /로 시작할 때만 자동완성
-        if "\n" not in text and text.startswith("/"):
-            self._show_autocomplete(text)
+    # ── 입력 변경 → 자동완성 (NFC는 제출 시에만) ─────────────
+    def on_input_changed(self, event: Input.Changed) -> None:
+        val = event.value
+        # 단일 줄에서 /로 시작할 때만 자동완성
+        if not self._prev_lines and val.startswith("/"):
+            self._show_autocomplete(val)
         else:
             self._hide_autocomplete()
 
@@ -186,7 +177,6 @@ class InputBar(Widget):
         if not matches:
             self._hide_autocomplete()
             return
-
         self._ac_items = matches
         self._ac_index = 0
         lv = self.query_one("#autocomplete", ListView)
@@ -211,9 +201,7 @@ class InputBar(Widget):
         if not self._ac_items:
             return
         cmd, _ = self._ac_items[self._ac_index]
-        ta = self.query_one("#input-field", ChatInput)
-        ta.clear()
-        ta.insert(cmd + " ")
+        self.query_one("#input-field", Input).value = cmd + " "
         self._hide_autocomplete()
 
     # ── Actions ───────────────────────────────────────────────

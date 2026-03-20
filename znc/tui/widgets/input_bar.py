@@ -46,6 +46,7 @@ class ChatInput(TextArea):
     BINDINGS = [
         Binding("enter",       "submit_text",  priority=True, show=False),
         Binding("shift+enter", "newline_text", priority=True, show=False),
+        Binding("ctrl+enter",  "newline_text", priority=True, show=False),
     ]
 
     DEFAULT_CSS = """

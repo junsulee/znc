@@ -52,6 +52,7 @@ from znc.tui.screens.settings import SettingsScreen
 from znc.tui.screens.confirm import ConfirmScreen
 from znc.tui.screens.command_palette import CommandPaletteScreen
 from znc.tui.screens.about import AboutScreen
+from znc.tui.screens.message_saver import MessageSaverScreen
 from znc.tui.widgets.chat_view import MessageView
 from znc.tui.widgets.input_bar import InputBar
 from znc.tui.widgets.process_log import ProcessLog
@@ -81,6 +82,7 @@ class ZncApp(App):
         Binding("ctrl+e", "open_memory",        "memory",    show=True,  priority=True),
         Binding("ctrl+b", "toggle_sidebar",     "사이드바",  show=True,  priority=True),
         Binding("ctrl+l", "toggle_log",         "log",       show=True,  priority=True),
+        Binding("ctrl+w", "save_message",       "save msg",  show=True,  priority=True),
         Binding("ctrl+g", "open_about",         "about",     show=True,  priority=True),
         Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
         Binding("tab",    "focus_next",         "패널전환",  show=True),
@@ -200,6 +202,7 @@ class ZncApp(App):
         SEP = f"[{D}] │ [/]"
 
         row1 = (
+            f"[{K}]^W[/][{D}]Save[/]{SEP}"
             f"[{K}]^N[/][{D}]New[/]{SEP}"
             f"[{K}]^T[/][{D}]Temp[/]{SEP}"
             f"[{K}]^B[/][{D}]Panel[/]{SEP}"
@@ -589,6 +592,9 @@ class ZncApp(App):
         if cmd == "/delete":
             self._delete_current_session()
             return True
+        if cmd in ("/save-msg", "/savemsg"):
+            self.action_save_message()
+            return True
         return False
 
     def _do_web_search(self, query: str, freshness: str = "", auto: bool = False) -> None:
@@ -870,6 +876,26 @@ class ZncApp(App):
                     self._persona = p
                     self._update_header()
         self.push_screen(PersonaScreen(self._persona.name), callback)
+
+    def action_save_message(self) -> None:
+        """현재 세션의 메시지 선택 → 파일 저장 팝업."""
+        if not self._session or not self._session.messages:
+            self._write_status("no messages to save", "yellow")
+            return
+        save_dir = self._sessions_dir()
+
+        def callback(filepath: str | None) -> None:
+            if filepath:
+                self._write_status(f"saved: {filepath}", "green")
+
+        self.push_screen(
+            MessageSaverScreen(
+                messages=self._session.messages,
+                ai_name=self._ai_name,
+                save_dir=save_dir,
+            ),
+            callback,
+        )
 
     def action_open_memory(self) -> None:
         self.push_screen(MemoryScreen())

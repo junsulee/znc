@@ -296,6 +296,7 @@ Screen {
     background: $bg-hover;
     border: none;
 }
+/* 전송/중단 버튼: 5자폭 × 1행 ≈ 터미널 정사각형 비율
    모든 hover/상태에 border: none 명시 — 전역 Button:hover { border: tall } 오버라이드 */
 #action-btn {
     width: 5;

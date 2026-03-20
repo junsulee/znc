@@ -49,7 +49,11 @@ class MemoryScreen(ModalScreen):
                 yield Input(placeholder="key: value", id="mem-input", classes="m-input")
                 yield Button("add", id="btn-add-mem")
 
-            yield Label("stored memories  [manual=blue / auto=yellow]", classes="m-label")
+            yield Label(
+                "stored memories  (m=manual:blue  a=auto:yellow)",
+                classes="m-label",
+                markup=False,
+            )
             yield ListView(id="memory-list")
 
             with Static(classes="btn-row"):

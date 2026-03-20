@@ -1,23 +1,25 @@
 """
-사이드바 위젯 — 프로젝트 목록 + 세션 목록.
+사이드바 위젯 — 프로젝트/세션 탐색 (Windows Explorer 스타일).
+
+탐색 구조:
+  PROJECTS
+    [unorganized]   ← 프로젝트 없는 세션들 (기본 뷰)
+    > work          ← 클릭 시 해당 프로젝트 진입
+    > personal
+
+  SESSIONS (현재 위치에 따라 표시)
+    ..              ← 프로젝트 진입 후 상위로 돌아가기
+    session1
+    session2
 
 단축키 (사이드바 포커스 시):
-  n     새 세션
-  t     임시 채팅 (저장 안 함)
-  p     새 프로젝트
-  /     세션 검색 (실시간 필터)
-  d     선택 세션 삭제
-  r     선택 세션 이름 변경
-  Esc   검색 닫기
-
-핵심 설계:
-  ListView.clear() + append() 를 ID 없는 ListItem 으로 사용한다.
-  ID 가 없으면 Textual 의 _ensure_unique_id 를 건너뛰므로
-  clear() 의 비동기 제거가 완료되기 전에 append() 를 호출해도
-  DuplicateIds 오류가 발생하지 않는다.
-
-  remove() + mount() 패턴은 ListView 자체가 두 번 DOM 에 존재하는
-  순간이 발생해 시각적 중복이 나타나므로 사용하지 않는다.
+  n   새 세션
+  t   임시 채팅
+  p   새 프로젝트
+  /   세션 검색
+  d   선택 세션 삭제
+  r   선택 세션 이름 변경
+  Esc 검색 닫기
 """
 from __future__ import annotations
 
@@ -33,7 +35,7 @@ from znc.core.repository import ProjectRepository
 
 
 class Sidebar(Widget):
-    """왼쪽 사이드바: 프로젝트 + 세션 목록."""
+    """왼쪽 사이드바: 프로젝트 + 세션 탐색."""
 
     BINDINGS = [
         Binding("n",      "new_session",    "new",    show=False),
@@ -76,13 +78,13 @@ class Sidebar(Widget):
     # ──────────────────────────────────────────────────────────
     def __init__(self) -> None:
         super().__init__(id="sidebar")
-        self._current_project: str | None = None
+        self._current_project: str | None = None  # None = unorganized root
         self._filter: str = ""
         self._sessions: list[Session] = []
         self._selected_name: str | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("znc", id="sidebar-title")
+        yield Static("znc / AI CLI", id="sidebar-title")
         yield Static("PROJECTS", classes="section-label")
         yield ListView(id="project-list")
         yield Static("SESSIONS", classes="section-label")
@@ -105,13 +107,15 @@ class Sidebar(Widget):
                 break
         self._fill_session_list()
 
-    # ── 내부: clear() + append() (ID 없는 ListItem) ────────────
+    # ── 내부: ListView 갱신 ────────────────────────────────────
     def _fill_project_list(self) -> None:
         lv = self.query_one("#project-list", ListView)
         lv.clear()
-        lv.append(ListItem(Label("[all]")))
+        # [unorganized] — 프로젝트 없는 세션 루트
+        lv.append(ListItem(Label("[unorganized]")))
+        # 각 프로젝트
         for proj in ProjectRepository.list_all():
-            lv.append(ListItem(Label(proj.name)))
+            lv.append(ListItem(Label(f"> {proj.name}")))
 
     def _reload_sessions(self) -> None:
         ensure_dirs()
@@ -119,17 +123,33 @@ class Sidebar(Widget):
               if self._current_project else SESSIONS_DIR)
         self._sessions = Session.list_sessions(sd)
         self._fill_session_list()
+        # 현재 위치 헤더 업데이트
+        label_text = (
+            f"SESSIONS  [{self._current_project}]"
+            if self._current_project
+            else "SESSIONS"
+        )
+        try:
+            labels = self.query("Static.section-label")
+            if len(labels) >= 2:
+                labels[1].update(label_text)
+        except Exception:
+            pass
 
     def _fill_session_list(self) -> None:
         lv = self.query_one("#session-list", ListView)
         lv.clear()
+        # 프로젝트 진입 상태 → ".." 상위 이동 항목
+        if self._current_project:
+            lv.append(ListItem(Label("..")))
+        # 세션 목록
         q = self._filter.lower()
         for s in self._sessions:
             label_text = s.display_title
             if q and q not in label_text.lower():
                 continue
-            lbl_cls = "sidebar-item--active" if s.name == self._selected_name else ""
-            lv.append(ListItem(Label(label_text, classes=lbl_cls)))
+            cls = "sidebar-item--active" if s.name == self._selected_name else ""
+            lv.append(ListItem(Label(label_text, classes=cls)))
 
     # ── Events ────────────────────────────────────────────────
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -140,22 +160,37 @@ class Sidebar(Widget):
         if lv.id == "project-list":
             projects = ProjectRepository.list_all()
             if idx == 0:
+                # [unorganized] 선택 → 프로젝트 없는 세션으로 이동
                 self._current_project = None
             elif idx is not None and idx - 1 < len(projects):
+                # 프로젝트 진입
                 self._current_project = projects[idx - 1].name
             self._filter = ""
             self._reload_sessions()
 
         elif lv.id == "session-list":
+            # ".." = 상위로 이동
+            base_idx = 0
+            if self._current_project:
+                if idx == 0:
+                    self._current_project = None
+                    self._filter = ""
+                    self._reload_sessions()
+                    return
+                base_idx = 1  # ".." 항목 건너뜀
+
             visible = [
                 s for s in self._sessions
                 if not self._filter
                 or self._filter.lower() in s.display_title.lower()
             ]
-            if idx is not None and idx < len(visible):
-                name = visible[idx].name
+            real_idx = idx - base_idx if self._current_project else idx
+            if idx is not None and real_idx is not None and real_idx < len(visible):
+                name = visible[real_idx].name
                 self._selected_name = name
-                self.post_message(self.SessionSelected(name, self._current_project))
+                self.post_message(
+                    self.SessionSelected(name, self._current_project)
+                )
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._filter = event.value

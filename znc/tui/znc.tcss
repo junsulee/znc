@@ -19,8 +19,14 @@ $ai-msg:    #0d1117;
 Screen {
     background: $bg;
     color: $text;
-    layout: horizontal;
+    layout: vertical;
     overflow: hidden hidden;
+}
+
+/* main-layout: 사이드바 + 채팅창 가로 배치, keybind-bar 위 공간 전체 사용 */
+#main-layout {
+    height: 1fr;
+    layout: horizontal;
 }
 
 /* ── 사이드바 ─────────────────────────────────────── */
@@ -429,7 +435,6 @@ Button.--danger {
     height: 2;
     background: $bg-panel;
     border-top: tall $border;
-    dock: bottom;
     color: $text-muted;
     padding: 0 1;
 }

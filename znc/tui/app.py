@@ -30,7 +30,7 @@ from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Label, Static
 
 from znc.backends.base import BaseBackend
@@ -105,14 +105,15 @@ class ZncApp(App):
     # Layout
     # ------------------------------------------------------------------
     def compose(self) -> ComposeResult:
-        yield Sidebar()
-        with Vertical(id="chat-pane"):
-            yield Static(id="chat-header")
-            yield Static(id="temp-banner")   # 임시 채팅 알림 배너 (기본 hidden)
-            yield MessageView()
-            yield ProcessLog(self._ps)
-            yield StatusBar(self._ps)
-            yield InputBar()
+        with Horizontal(id="main-layout"):
+            yield Sidebar()
+            with Vertical(id="chat-pane"):
+                yield Static(id="chat-header")
+                yield Static(id="temp-banner")
+                yield MessageView()
+                yield ProcessLog(self._ps)
+                yield StatusBar(self._ps)
+                yield InputBar()
         yield Static(id="keybind-bar")
 
     def on_mount(self) -> None:

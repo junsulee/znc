@@ -14,6 +14,7 @@ from textual.widgets import Button, Input, Label, Static
 _HOTKEYS = [
     ("Ctrl+N",   "새 채팅 시작"),
     ("Ctrl+T",   "임시 채팅 (저장 안 함)"),
+    ("Ctrl+W",   "메시지 선택 후 파일 저장 (md/txt/py/json/csv…)"),
     ("Ctrl+B",   "사이드바 숨기기/보이기 토글"),
     ("Ctrl+S",   "설정 팝업"),
     ("Ctrl+P",   "Persona 관리"),
@@ -35,7 +36,7 @@ _HOTKEYS = [
 ]
 
 _SLASH = [
-    ("/search <query>",         "웹 검색 (옵션: --week --day --month)"),
+    ("/save-msg",           "메시지 선택 → 파일 저장 팝업"),
     ("/search <q> --week",      "최근 1주일 결과만 검색"),
     ("/remember <k>:<v>",       "장기 메모리 저장"),
     ("/forget <key>",           "장기 메모리 삭제"),

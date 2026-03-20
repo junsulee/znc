@@ -7,9 +7,11 @@ from znc.tui.screens.rename_session import RenameSessionScreen
 from znc.tui.screens.confirm import ConfirmScreen
 from znc.tui.screens.command_palette import CommandPaletteScreen
 from znc.tui.screens.about import AboutScreen
+from znc.tui.screens.move_session import MoveSessionScreen
 
 __all__ = [
     "SettingsScreen", "MemoryScreen", "PersonaScreen",
     "NewProjectScreen", "RenameSessionScreen",
     "ConfirmScreen", "CommandPaletteScreen", "AboutScreen",
+    "MoveSessionScreen",
 ]

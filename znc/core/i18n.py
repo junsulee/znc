@@ -228,9 +228,25 @@ _UI: dict[str, dict[str, str]] = {
         "kbar_sb_rename":       "r:이름변경",
         "kbar_sb_esc":          "Esc:닫기",
         "kbar_sb_prefix":       "사이드바 >",
+        # Move session
+        "move_session_title":   "세션 이동",
+        "move_dest_label":      "이동 대상:",
+        "move_global":          "(전역 — 프로젝트 없음)",
+        "btn_move":             "이동",
+        # Persona screen
+        "persona_edit_create":  "편집 / 새로 만들기",
+        "persona_saved":        "저장된 페르소나",
+        "persona_active":       "(활성)",
+        # New project
+        "np_error_exists":      "이미 존재하는 이름입니다",
+        "np_error_required":    "이름을 입력해주세요",
+        # Memory
+        "mem_no_items":         "저장된 메모리가 없습니다",
+        # Status
+        "moved":                "이동됨: {name}",
+        "renamed":              "이름 변경됨: {name}",
     },
-    "en": {
-        # sidebar
+    "en": {        # sidebar
         "projects":             "PROJECTS",
         "sessions":             "SESSIONS",
         "inbox":                "inbox",
@@ -324,6 +340,23 @@ _UI: dict[str, dict[str, str]] = {
         "kbar_sb_rename":       "r:rename",
         "kbar_sb_esc":          "Esc:close",
         "kbar_sb_prefix":       "sidebar >",
+        # Move session
+        "move_session_title":   "Move Session",
+        "move_dest_label":      "Destination:",
+        "move_global":          "(global — no project)",
+        "btn_move":             "Move",
+        # Persona screen
+        "persona_edit_create":  "Edit / Create",
+        "persona_saved":        "Saved Personas",
+        "persona_active":       "(active)",
+        # New project
+        "np_error_exists":      "Name already exists",
+        "np_error_required":    "Name is required",
+        # Memory
+        "mem_no_items":         "No memories stored",
+        # Status
+        "moved":                "moved: {name}",
+        "renamed":              "renamed: {name}",
     },
 }
 

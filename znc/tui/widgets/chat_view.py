@@ -99,21 +99,26 @@ class MessageView(Widget):
     def begin_assistant_turn(self, ai_name: str) -> None:
         """스트리밍 시작.
 
-        첫 토큰 도착 전까지 ASCII 스피너(|/-\\)를 표시해 응답 대기 중임을 알린다.
+        첫 토큰 도착 전까지 브레일 스피너를 표시해 응답 대기 중임을 알린다.
         토큰이 도착하면 스피너가 실제 내용으로 교체된다.
         """
         self._stream_ai_name = ai_name
         self._stream_buffer = ""
-        self._thinking = True
-        self._think_tick = 0
 
         sc = self.query_one("#stream-current", Static)
         sc.display = True
+
+        # 기존 타이머만 정리 (_thinking 플래그는 여기서 변경하지 않음)
+        if self._think_timer is not None:
+            self._think_timer.stop()
+            self._think_timer = None
+
+        # _thinking = True 를 타이머 시작 직전에 설정
+        self._thinking = True
+        self._think_tick = 0
         self._render_thinking()
         self.scroll_end(animate=False)
 
-        # 100 ms 마다 스피너 프레임 전진
-        self._stop_thinking()
         self._think_timer = self.set_interval(0.1, self._on_think_tick)
 
     def append_token(self, token: str) -> None:

@@ -14,7 +14,7 @@ from textual.widget import Widget
 from textual.widgets import RichLog
 
 from znc.tui.animation import shimmer, SHIMMER_STAGES
-from znc.tui.process_state import ProcessState, Stage, STAGE_LABEL, STAGE_STYLE
+from znc.tui.process_state import ProcessState, Stage, STAGE_STYLE
 
 _PANEL_HEIGHT = 10
 
@@ -44,9 +44,17 @@ class ProcessLog(Widget):
         self._ps = process_state
         self._anim_tick: int = 0
         self._anim_timer: Timer | None = None
+        self._lang: str = "ko"
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="proc-log", wrap=False, highlight=False, markup=False)
+
+    def on_mount(self) -> None:
+        try:
+            from znc.core.config import load_settings
+            self._lang = load_settings().get("lang", "ko")
+        except Exception:
+            pass
 
     # ── Public API ─────────────────────────────────────────────
     def show(self) -> None:
@@ -76,6 +84,11 @@ class ProcessLog(Widget):
         self._maybe_start_anim()
 
     def refresh_last_step(self) -> None:
+        if "--visible" in self.classes:
+            self._redraw()
+
+    def set_lang(self, lang: str) -> None:
+        self._lang = lang
         if "--visible" in self.classes:
             self._redraw()
 
@@ -112,8 +125,10 @@ class ProcessLog(Widget):
             log.write(self._format_step(step, is_active))
 
     def _format_step(self, step, is_active: bool = False) -> Text:
+        from znc.tui.widgets.status_bar import _STAGE_LABEL
         style = STAGE_STYLE.get(step.stage, "")
-        label = STAGE_LABEL.get(step.stage, step.stage.value)
+        label_map = _STAGE_LABEL.get(self._lang, _STAGE_LABEL["en"])
+        label = label_map.get(step.stage, step.stage.value)
 
         t = Text()
         t.append(f"  {step.elapsed:5.2f}s", style="dim #484f58")

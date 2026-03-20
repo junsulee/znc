@@ -67,9 +67,17 @@ class StatusBar(Widget):
     def render(self) -> Text:
         ps = self._ps
         stage = ps.stage
+        log_marker = (
+            "[dim][^L] log[/dim]"
+            if not self._log_visible
+            else "[dim #58a6ff][^L] log ▲[/]"
+        )
 
         if stage == Stage.IDLE:
-            return Text("")
+            # 비어 보이지 않도록 힌트 항상 표시
+            t = Text()
+            t.append_text(Text.from_markup(log_marker))
+            return t
 
         label = STAGE_LABEL.get(stage, stage.value)
         style = STAGE_STYLE.get(stage, "")
@@ -101,7 +109,6 @@ class StatusBar(Widget):
         t.append(elapsed, style="dim #484f58")
 
         # 로그 토글 힌트 + 스트리밍 중이면 Esc 중단 힌트
-        log_marker = "[dim][^L] log[/dim]" if not self._log_visible else "[dim #58a6ff][^L] log ▲[/]"
         t.append("  ")
         t.append_text(Text.from_markup(log_marker))
 

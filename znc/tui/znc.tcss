@@ -108,6 +108,32 @@ Screen {
     text-style: bold;
 }
 
+/* ── 임시 채팅 배너 ─────────────────────────────── */
+#temp-banner {
+    height: 1;
+    background: #2d1f00;
+    color: $warning;
+    padding: 0 1;
+    display: none;
+}
+
+#chat-pane.--temp #temp-banner {
+    display: block;
+}
+
+/* 임시 채팅 시 입력창 테두리를 amber 로 */
+#chat-pane.--temp #input-bar {
+    border-top: tall #6e4c00;
+}
+
+#chat-pane.--temp #input-field {
+    border: tall #6e4c00;
+}
+
+#chat-pane.--temp #input-field:focus {
+    border: tall $warning;
+}
+
 /* ── 메인 채팅 영역 ───────────────────────────────── */
 #chat-pane {
     width: 1fr;

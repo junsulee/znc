@@ -459,6 +459,7 @@ class ZncApp(App):
         # 이 스트림의 고유 ID — 세션 전환 시 _stream_id 가 증가하면 콜백 무시
         self._stream_id += 1
         my_stream_id = self._stream_id
+        target_session = self._session  # 스트림이 속한 원본 세션 참조 캡처
 
         mv = self.query_one(MessageView)
         self._step(Stage.THINKING, "waiting for first token")
@@ -471,7 +472,7 @@ class ZncApp(App):
             try:
                 for token in self._backend.stream(prompt, system_prompt=system):
                     if self._stream_id != my_stream_id:
-                        return  # 세션이 전환됨 — 이 스트림 폐기
+                        return  # 세션이 전환됨 — UI 업데이트 중단
                     if not first_token:
                         first_token = True
                         self._step_from_thread(Stage.GENERATING)
@@ -486,8 +487,13 @@ class ZncApp(App):
                     if self._stream_id == my_stream_id:
                         self._on_stream_done()
                     else:
+                        # 세션 전환으로 중단됨 — 쌓인 내용을 원본 세션에 저장
                         self._streaming = False
                         self.query_one(InputBar).streaming = False
+                        partial = self._stream_buffer
+                        self._stream_buffer = ""
+                        if partial and target_session:
+                            self._save_to_session(partial, target_session)
                 self.call_from_thread(on_done)
 
         threading.Thread(target=run_stream, daemon=True).start()
@@ -498,25 +504,38 @@ class ZncApp(App):
         content = self._stream_buffer
         self._stream_buffer = ""
         if self._session and content:
-            self._session.append(Message(role="assistant", content=content))
-            # 세션 저장 (임시 채팅 제외)
-            if not self._session.is_temp:
-                try:
-                    self._session.save(self._sessions_dir())
-                except Exception:
-                    pass
-            # auto 메모리 추출
-            if self._backend:
-                def _extract():
-                    extract_and_save_auto(content, self._backend)
-                threading.Thread(target=_extract, daemon=True).start()
-            # auto-title: 첫 응답 완료 후 1회만 실행
+            self._save_to_session(content, self._session)
             if not self._title_generated:
                 self._maybe_generate_title()
-
         self._step(Stage.DONE)
         self.query_one(MessageView).end_streaming()
         self.query_one(InputBar).focus_input()
+
+    def _save_to_session(self, content: str, session) -> None:
+        """AI 응답을 지정 세션에 저장하고 부가 처리를 수행한다.
+        세션 전환으로 스트림이 중단된 경우에도 올바른 세션에 저장하기 위해
+        _on_stream_done 과 분리된 헬퍼로 구현.
+        """
+        session.append(Message(role="assistant", content=content))
+        if not session.is_temp:
+            try:
+                sd = (ProjectRepository.sessions_dir(session.project)
+                      if session.project else SESSIONS_DIR)
+                ensure_dirs()
+                session.save(sd)
+            except Exception:
+                pass
+        # 자동 메모리 추출 (현재 세션 응답에만 적용)
+        if self._backend and session is self._session:
+            def _extract():
+                extract_and_save_auto(content, self._backend)
+            threading.Thread(target=_extract, daemon=True).start()
+        # 사이드바 갱신 (현재 세션이면)
+        if session is self._session:
+            try:
+                self.query_one(Sidebar).refresh_lists()
+            except Exception:
+                pass
 
     def _write_status(self, text: str, style: str = "yellow") -> None:
         self.query_one(MessageView).write_status(text, style)
@@ -666,6 +685,7 @@ class ZncApp(App):
         self._streaming = True
         self._stream_id += 1
         my_stream_id = self._stream_id
+        target_session = self._session  # 원본 세션 참조 캡처
         prompt = self._build_prompt() + f"\n[context]\n{text}\n{self._ai_name}:"
         system = self._build_system()
         mv = self.query_one(MessageView)
@@ -696,6 +716,11 @@ class ZncApp(App):
                         self._on_stream_done()
                     else:
                         self._streaming = False
+                        self.query_one(InputBar).streaming = False
+                        partial = self._stream_buffer
+                        self._stream_buffer = ""
+                        if partial and target_session:
+                            self._save_to_session(partial, target_session)
                 self.call_from_thread(on_done)
 
         threading.Thread(target=run_stream, daemon=True).start()

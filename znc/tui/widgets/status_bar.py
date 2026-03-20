@@ -149,8 +149,13 @@ class StatusBar(Widget):
             t.append("   ")
 
         # 단계 레이블 — 활성이면 shimmer, 완료/오류는 정적
+        # shimmer 는 가장 어두운 글자도 dim base_style 로 항상 가시
         if stage in SHIMMER_STAGES:
-            t.append_text(shimmer(label, self._tick, style))
+            shim = shimmer(label, self._tick, style)
+            if shim.plain:
+                t.append_text(shim)
+            else:
+                t.append(label, style=f"bold {style}")
         else:
             t.append(label, style=f"bold {style}")
 

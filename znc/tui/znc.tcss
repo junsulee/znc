@@ -24,8 +24,7 @@ Screen {
 }
 
 /* ── 사이드바 ─────────────────────────────────────── */
-#sidebar {
-    width: 26;
+#sidebar {    width: 26;
     min-width: 26;
     height: 100%;
     background: $bg-panel;
@@ -393,7 +392,7 @@ Button.--danger {
 
 /* ── 키맵 힌트 바 ────────────────────────────────── */
 #keybind-bar {
-    height: 1;
+    height: 2;
     background: $bg-panel;
     border-top: tall $border;
     dock: bottom;

@@ -19,7 +19,7 @@ _HOTKEYS = [
     ("Ctrl+P",   "Persona 관리"),
     ("Ctrl+E",   "메모리 관리"),
     ("Ctrl+L",   "프로세스 로그 토글"),
-    ("Ctrl+I",   "znc 정보"),
+    ("Ctrl+G",   "znc 정보 (About)"),
     ("F1",       "커맨드 팔레트 (이 화면)"),
     ("Tab",      "사이드바 ↔ 채팅창 전환"),
     ("Ctrl+Q",   "종료"),

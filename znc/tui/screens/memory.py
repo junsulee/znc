@@ -68,7 +68,8 @@ class MemoryScreen(ModalScreen):
                 f"[{item.source[0]}] {item.key}: {item.value}",
                 classes=f"mem-row {source_style}",
             )
-            lv.append(ListItem(label, id=f"mem-{item.key}"))
+            # ID 미사용: 한글·공백 등 특수문자 포함 시 BadIdentifier 발생
+            lv.append(ListItem(label))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-close":

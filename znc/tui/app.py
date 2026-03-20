@@ -81,7 +81,7 @@ class ZncApp(App):
         Binding("ctrl+e", "open_memory",        "memory",    show=True,  priority=True),
         Binding("ctrl+b", "toggle_sidebar",     "사이드바",  show=True,  priority=True),
         Binding("ctrl+l", "toggle_log",         "log",       show=True,  priority=True),
-        Binding("ctrl+i", "open_about",         "about",     show=True,  priority=True),
+        Binding("ctrl+g", "open_about",         "about",     show=True,  priority=True),
         Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
         Binding("tab",    "focus_next",         "패널전환",  show=True),
         Binding("ctrl+q", "quit",               "종료",      show=True,  priority=True),
@@ -185,18 +185,46 @@ class ZncApp(App):
         )
 
     def _update_keybind_bar(self) -> None:
+        """DOS Commander 스타일 하단 키바인딩 바.
+
+        키 라벨(cyan bg) + 설명(dim) 을 연속으로 배치한다.
+        두 줄로 나뉜다:
+          윗줄: 전역 단축키
+          아랫줄: 사이드바 포커스 시 단축키 (context)
+        """
+        # Rich 마크업으로 DOS Commander 스타일 렌더링
+        # [key_bg]키[/] 설명  형태
+        K = "bold #0d1117 on #58a6ff"   # 키 라벨 배경 (파란색 하이라이트)
+        D = "dim #8b949e"                 # 설명 텍스트
+        SEP = f"[{D}] │ [/]"
+
+        row1 = (
+            f"[{K}]^N[/][{D}]New[/]{SEP}"
+            f"[{K}]^T[/][{D}]Temp[/]{SEP}"
+            f"[{K}]^B[/][{D}]Panel[/]{SEP}"
+            f"[{K}]^S[/][{D}]Settings[/]{SEP}"
+            f"[{K}]^P[/][{D}]Persona[/]{SEP}"
+            f"[{K}]^E[/][{D}]Memory[/]{SEP}"
+            f"[{K}]^L[/][{D}]Log[/]{SEP}"
+            f"[{K}]^G[/][{D}]About[/]{SEP}"
+            f"[{K}]F1[/][{D}]Help[/]{SEP}"
+            f"[{K}]Tab[/][{D}]Focus[/]{SEP}"
+            f"[{K}]^Q[/][{D}]Quit[/]"
+        )
+        # 사이드바 포커스 컨텍스트 (두 번째 줄)
+        row2 = (
+            f"[dim #484f58]sidebar>[/]  "
+            f"[{K}]n[/][{D}]New[/]{SEP}"
+            f"[{K}]t[/][{D}]Temp[/]{SEP}"
+            f"[{K}]p[/][{D}]Project[/]{SEP}"
+            f"[{K}]/[/][{D}]Search[/]{SEP}"
+            f"[{K}]d[/][{D}]Delete[/]{SEP}"
+            f"[{K}]r[/][{D}]Rename[/]{SEP}"
+            f"[{K}]Esc[/][{D}]Close[/]"
+        )
+
         self.query_one("#keybind-bar", Static).update(
-            "[bold #58a6ff]^N[/] new  "
-            "[bold #58a6ff]^T[/] temp  "
-            "[bold #58a6ff]^B[/] sidebar  "
-            "[bold #58a6ff]^S[/] settings  "
-            "[bold #58a6ff]^P[/] persona  "
-            "[bold #58a6ff]^E[/] memory  "
-            "[bold #58a6ff]^L[/] log  "
-            "[bold #58a6ff]^I[/] about  "
-            "[bold #58a6ff]F1[/] help  "
-            "[bold #58a6ff]Tab[/] panel  "
-            "[bold #58a6ff]^Q[/] quit"
+            f"{row1}\n{row2}"
         )
 
     # ------------------------------------------------------------------

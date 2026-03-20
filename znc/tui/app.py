@@ -405,7 +405,7 @@ class ZncApp(App):
                 self._maybe_generate_title()
 
         self._step(Stage.DONE)
-        self.query_one(MessageView).write("")
+        self.query_one(MessageView).end_streaming()
         self.query_one(InputBar).focus_input()
 
     def _write_status(self, text: str, style: str = "yellow") -> None:

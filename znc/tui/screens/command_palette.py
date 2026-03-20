@@ -94,9 +94,9 @@ class CommandPaletteScreen(ModalScreen):
                     if desc == "":
                         yield Label(key, classes="cp-sep-row")
                         continue
+                    # ID 미사용: / 등 특수문자가 포함되면 BadIdentifier 발생
                     yield Label(
                         f"  {key:<16}  {desc}",
-                        id=f"hk-{key.replace('+','').replace(' ','')}",
                         classes="cp-row",
                     )
                 yield Label("", classes="cp-sep-row")
@@ -104,7 +104,6 @@ class CommandPaletteScreen(ModalScreen):
                 for cmd, desc in _SLASH:
                     yield Label(
                         f"  {cmd:<22}  {desc}",
-                        id=f"sl-{cmd.split()[0].lstrip('/')}",
                         classes="cp-row",
                     )
             with Static(classes="btn-row"):

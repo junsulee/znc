@@ -17,6 +17,7 @@ from textual.timer import Timer
 from textual.widget import Widget
 
 from znc.tui.process_state import ProcessState, Stage, STAGE_LABEL, STAGE_STYLE
+from znc.tui.animation import shimmer, SHIMMER_STAGES
 
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 _ACTIVE_STAGES = {
@@ -98,8 +99,11 @@ class StatusBar(Widget):
         else:
             t.append("   ")
 
-        # 현재 단계
-        t.append(f"{label}", style=f"bold {style}")
+        # 현재 단계 — 활성이면 shimmer 애니메이션
+        if stage in SHIMMER_STAGES:
+            t.append_text(shimmer(label, self._tick, style))
+        else:
+            t.append(f"{label}", style=f"bold {style}")
 
         # 세부 내용
         if ps.detail:

@@ -180,7 +180,7 @@ Screen {
     background: $bg;
     border-top: tall $bg-active;
     overflow-y: hidden;
-    transition: height 200ms ease-in-out;
+    transition: height 200ms in_out_cubic;
 }
 
 #proc-log {

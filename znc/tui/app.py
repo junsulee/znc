@@ -49,6 +49,9 @@ from znc.tui.screens.new_project import NewProjectScreen
 from znc.tui.screens.persona import PersonaScreen
 from znc.tui.screens.rename_session import RenameSessionScreen
 from znc.tui.screens.settings import SettingsScreen
+from znc.tui.screens.confirm import ConfirmScreen
+from znc.tui.screens.command_palette import CommandPaletteScreen
+from znc.tui.screens.about import AboutScreen
 from znc.tui.widgets.chat_view import MessageView
 from znc.tui.widgets.input_bar import InputBar
 from znc.tui.widgets.process_log import ProcessLog
@@ -71,15 +74,17 @@ class ZncApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
-        Binding("ctrl+n", "new_session",   "새 채팅",   show=True,  priority=True),
-        Binding("ctrl+t", "temp_session",  "임시 채팅", show=True,  priority=True),
-        Binding("ctrl+s", "open_settings", "설정",      show=True,  priority=True),
-        Binding("ctrl+p", "open_persona",  "persona",   show=True,  priority=True),
-        Binding("ctrl+e", "open_memory",   "memory",    show=True,  priority=True),
-        Binding("ctrl+l", "toggle_log",    "log",       show=True,  priority=True),
-        Binding("tab",    "focus_next",    "패널전환",  show=True),
-        Binding("ctrl+q", "quit",          "종료",      show=True,  priority=True),
-        Binding("escape", "focus_input",   "",          show=False),
+        Binding("ctrl+n", "new_session",        "새 채팅",   show=True,  priority=True),
+        Binding("ctrl+t", "temp_session",       "임시 채팅", show=True,  priority=True),
+        Binding("ctrl+s", "open_settings",      "설정",      show=True,  priority=True),
+        Binding("ctrl+p", "open_persona",       "persona",   show=True,  priority=True),
+        Binding("ctrl+e", "open_memory",        "memory",    show=True,  priority=True),
+        Binding("ctrl+l", "toggle_log",         "log",       show=True,  priority=True),
+        Binding("ctrl+i", "open_about",         "about",     show=True,  priority=True),
+        Binding("f1",     "open_command_palette","help",     show=True,  priority=True),
+        Binding("tab",    "focus_next",         "패널전환",  show=True),
+        Binding("ctrl+q", "quit",               "종료",      show=True,  priority=True),
+        Binding("escape", "focus_input",        "",          show=False),
     ]
 
     def __init__(self) -> None:
@@ -166,6 +171,8 @@ class ZncApp(App):
             "[bold #58a6ff]^P[/] persona  "
             "[bold #58a6ff]^E[/] memory  "
             "[bold #58a6ff]^L[/] log  "
+            "[bold #58a6ff]^I[/] about  "
+            "[bold #58a6ff]F1[/] help  "
             "[bold #58a6ff]Tab[/] panel  "
             "[bold #58a6ff]^Q[/] quit"
         )
@@ -500,6 +507,12 @@ class ZncApp(App):
         if cmd == "/settings":
             self.action_open_settings()
             return True
+        if cmd == "/about":
+            self.action_open_about()
+            return True
+        if cmd == "/delete":
+            self._delete_current_session()
+            return True
         return False
 
     def _do_web_search(self, query: str) -> None:
@@ -588,7 +601,33 @@ class ZncApp(App):
 
         threading.Thread(target=run_stream, daemon=True).start()
 
-    def _do_export(self, filepath: str) -> None:
+    def _delete_current_session(self) -> None:
+        """현재 활성 세션 삭제 (확인 후)."""
+        if not self._session or self._session.name in (_UNSAVED, _TEMP):
+            self._write_status("저장된 세션이 없습니다.", "yellow")
+            return
+        if self._session.is_temp:
+            self._write_status("임시 세션은 저장되지 않았습니다.", "yellow")
+            return
+        name = self._session.name
+
+        def _do_delete(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            sd = self._sessions_dir()
+            path = os.path.join(sd, f"{name}.json")
+            if os.path.exists(path):
+                os.remove(path)
+            self._session = None
+            self.query_one(MessageView).clear()
+            self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+            self._write_status(f"deleted: {name}", "green")
+
+        self.push_screen(
+            ConfirmScreen(f"'{name}' 세션을 삭제하시겠습니까?", "세션 삭제"),
+            _do_delete,
+        )
         if not self._session:
             self._write_status("no active session", "red")
             return
@@ -634,16 +673,24 @@ class ZncApp(App):
     def on_sidebar_session_delete_requested(
         self, event: Sidebar.SessionDeleteRequested
     ) -> None:
-        sd = self._sessions_dir(event.project)
-        path = os.path.join(sd, f"{event.name}.json")
-        if os.path.exists(path):
-            os.remove(path)
-            self._write_status(f"deleted: {event.name}", "green")
-            if self._session and self._session.name == event.name:
-                self._session = None
-                self.query_one(MessageView).clear()
-                self._update_header()
-        self.query_one(Sidebar).refresh_lists()
+        def _do_delete(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            sd = self._sessions_dir(event.project)
+            path = os.path.join(sd, f"{event.name}.json")
+            if os.path.exists(path):
+                os.remove(path)
+                self._write_status(f"deleted: {event.name}", "green")
+                if self._session and self._session.name == event.name:
+                    self._session = None
+                    self.query_one(MessageView).clear()
+                    self._update_header()
+            self.query_one(Sidebar).refresh_lists()
+
+        self.push_screen(
+            ConfirmScreen(f"'{event.name}' 세션을 삭제하시겠습니까?", "세션 삭제"),
+            _do_delete,
+        )
 
     def on_sidebar_session_rename_requested(
         self, event: Sidebar.SessionRenameRequested
@@ -689,6 +736,12 @@ class ZncApp(App):
 
     def action_open_memory(self) -> None:
         self.push_screen(MemoryScreen())
+
+    def action_open_about(self) -> None:
+        self.push_screen(AboutScreen(self._settings))
+
+    def action_open_command_palette(self) -> None:
+        self.push_screen(CommandPaletteScreen())
 
     def action_toggle_log(self) -> None:
         pl = self.query_one(ProcessLog)

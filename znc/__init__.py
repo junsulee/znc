@@ -1,2 +1,5 @@
 """znc — 개인용 AI CLI"""
-__version__ = "0.2.0"
+from znc.version import VERSION, BUILD
+
+__version__ = VERSION
+__build__ = BUILD

@@ -487,3 +487,16 @@ Button.--danger {
 .persona-item-row.--active {
     color: $success;
 }
+
+/* ── 입력창 버튼 hover override ─────────────────────
+   전역 Button:hover { border: tall $accent } 가 파일 후반에 선언되어
+   #action-btn:hover { border: none } 을 덮어씀.
+   #input-bar 내부 Button 의 모든 상태에서 border: none 을 명시적으로 재선언.
+   이 규칙이 파일 최하단에 위치해야 확실히 적용됨.            */
+#input-bar Button,
+#input-bar Button:hover,
+#input-bar Button:focus,
+#input-bar Button:focus-within {
+    border: none;
+    margin: 0;
+}
